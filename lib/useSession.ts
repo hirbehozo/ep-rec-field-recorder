@@ -27,6 +27,7 @@ export function useSession() {
   const [offsetMs, setOffsetMs] = useState(0)
   const [recording, setRecording] = useState(false)
   const [lastTakeWarning, setLastTakeWarning] = useState<string | null>(null)
+  const [wakeLockHeld, setWakeLockHeld] = useState(false)
 
   const takeNoRef = useRef(0)
   const writerRef = useRef<FileWriter | null>(null)
@@ -35,6 +36,13 @@ export function useSession() {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
   const recordingRef = useRef(false)
   const sessionsRef = useRef<SessionMeta[]>([])
+
+  // start()/stop() can run across an awaited hardware scan, by which point a
+  // handler created before the scan would otherwise close over pre-scan
+  // recorder data (status not yet 'ready', sampleRate still 0). Mirroring
+  // into a ref keeps every closure reading the current value at call time.
+  const recorderStateRef = useRef(recorder)
+  recorderStateRef.current = recorder
 
   useEffect(() => {
     readIndex().then((index) => {
@@ -46,9 +54,16 @@ export function useSession() {
 
   const acquireWakeLock = useCallback(async () => {
     try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen')
+      const lock = await navigator.wakeLock.request('screen')
+      lock.onrelease = () => {
+        wakeLockRef.current = null
+        setWakeLockHeld(false)
+      }
+      wakeLockRef.current = lock
+      setWakeLockHeld(true)
     } catch {
       wakeLockRef.current = null
+      setWakeLockHeld(false)
     }
   }, [])
 
@@ -74,18 +89,19 @@ export function useSession() {
   }, [])
 
   const start = useCallback(async () => {
-    if (recorder.status !== 'ready') return
+    if (recorderStateRef.current.status !== 'ready') return
 
     takeNoRef.current += 1
     const id = makeTakeId()
     const startedAt = new Date().toISOString()
     const wavName = `${id}.wav`
+    const sampleRate = recorderStateRef.current.sampleRate
 
     const writer = await openWritable(wavName)
     if (writer) {
       writerRef.current = writer
       memChunksRef.current = null
-      await writer.write(wavHeader(0, recorder.sampleRate, 2))
+      await writer.write(wavHeader(0, sampleRate, 2))
     } else {
       writerRef.current = null
       memChunksRef.current = []
@@ -93,7 +109,7 @@ export function useSession() {
 
     await acquireWakeLock()
     const t0 = performance.now()
-    currentTakeRef.current = { id, startedAt, sampleRate: recorder.sampleRate }
+    currentTakeRef.current = { id, startedAt, sampleRate }
 
     recorder.start((chunk) => {
       if (writerRef.current) writerRef.current.write(chunk.bytes).catch(() => {})
@@ -143,9 +159,9 @@ export function useSession() {
       duration: take.sampleRate ? frames / take.sampleRate : 0,
       sampleRate: take.sampleRate,
       channels: 2,
-      device: recorder.deviceLabel,
+      device: recorderStateRef.current.deviceLabel,
       bpm,
-      clipped: recorder.clipped,
+      clipped: recorderStateRef.current.clipped,
       offsetMs,
       events: midiResult.events.length,
       ports,
@@ -164,6 +180,7 @@ export function useSession() {
     if (wakeLockRef.current) {
       await wakeLockRef.current.release().catch(() => {})
       wakeLockRef.current = null
+      setWakeLockHeld(false)
     }
 
     currentTakeRef.current = null
@@ -192,6 +209,7 @@ export function useSession() {
     offsetMs,
     setOffsetMs,
     lastTakeWarning,
+    wakeLockHeld,
     start,
     stop,
     removeTake,

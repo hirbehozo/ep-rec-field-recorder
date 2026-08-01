@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { looksLikeHardware } from './deviceHint'
 import { PcmSink, type PcmChunk } from './pcmSink'
 import type { WorkletMessage } from './types'
 
@@ -16,8 +17,6 @@ export interface RecorderState {
   error: string | null
   deviceMessage: string | null
 }
-
-const HARDWARE_HINT = /usb|sidekick|ep-1|interface|teenage|audio/i
 
 // The worklet's final partial buffer flushes asynchronously after stop();
 // this gives it time to land before the sink stops accepting PCM.
@@ -132,7 +131,7 @@ export function useRecorder() {
         deviceLabel,
         sampleRate: ctx.sampleRate,
         channelCount: settings.channelCount ?? 2,
-        deviceMessage: HARDWARE_HINT.test(deviceLabel)
+        deviceMessage: looksLikeHardware(deviceLabel)
           ? null
           : 'That input looks like the phone microphone rather than the Sidekick. Pick the USB device from the list.',
       }))
