@@ -56,14 +56,23 @@ function downloadFile(file: File): void {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+// The share sheet is the good path specifically on mobile (Android has a
+// reliable "save to device" entry in it). Desktop share panels (e.g. macOS)
+// don't consistently offer a plain save-to-disk option, so a direct
+// download there is more reliable than routing through the sheet.
+function isMobileLike(): boolean {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
 /**
- * navigator.share with files when canShare accepts them (the good path on
- * Android), falling back to an object URL download. AbortError just means
- * the user dismissed the share sheet, so it is swallowed silently.
+ * navigator.share with files on mobile when canShare accepts them (the good
+ * path on Android), falling back to an object URL download everywhere else.
+ * AbortError just means the user dismissed the share sheet, so it is
+ * swallowed silently.
  */
 export async function shareOrDownload(file: File): Promise<void> {
   try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    if (isMobileLike() && navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], title: file.name })
       return
     }
