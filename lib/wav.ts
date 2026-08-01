@@ -1,4 +1,8 @@
-export function wavHeader(dataBytes: number, sampleRate: number, channels: number): Uint8Array {
+export function wavHeader(
+  dataBytes: number,
+  sampleRate: number,
+  channels: number,
+): Uint8Array<ArrayBuffer> {
   const buffer = new ArrayBuffer(44)
   const view = new DataView(buffer)
   const writeString = (offset: number, s: string) => {
@@ -20,7 +24,11 @@ export function wavHeader(dataBytes: number, sampleRate: number, channels: numbe
   return new Uint8Array(buffer)
 }
 
-export function interleave(left: Float32Array, right: Float32Array, frames: number): Int16Array {
+export function interleave(
+  left: Float32Array,
+  right: Float32Array,
+  frames: number,
+): Int16Array<ArrayBuffer> {
   const out = new Int16Array(frames * 2)
   for (let i = 0, j = 0; i < frames; i++) {
     let a = left[i]

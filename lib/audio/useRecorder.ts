@@ -164,9 +164,9 @@ export function useRecorder() {
     setState((s) => ({ ...s, status: 'recording', frames: 0, clipped: false }))
   }, [])
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (): Promise<{ frames: number } | undefined> => {
     const g = graphRef.current
-    if (!g) return
+    if (!g) return undefined
     g.node.port.postMessage({ on: false })
     // The UI-facing status can flip immediately; the sink itself must stay
     // open a little longer for the worklet's async final flush.
@@ -174,6 +174,11 @@ export function useRecorder() {
     await new Promise((resolve) => setTimeout(resolve, STOP_DRAIN_MS))
     pcmSinkRef.current.setOpen(false)
     pcmSinkRef.current.detach()
+    // framesRef is updated synchronously inside the onPcm wrapper as chunks
+    // arrive, so by the time the drain wait above resolves it already
+    // reflects the final flushed chunk — safe to read without racing the
+    // (batched, async) `frames` state.
+    return { frames: framesRef.current }
   }, [])
 
   return { ...state, openDevice, close, start, stop }

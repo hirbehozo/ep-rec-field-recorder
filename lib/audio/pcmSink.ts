@@ -2,7 +2,7 @@ import { interleave } from '../wav'
 import type { WorkletMessage } from './types'
 
 export interface PcmChunk {
-  bytes: Uint8Array
+  bytes: Uint8Array<ArrayBuffer>
   frames: number
 }
 
