@@ -55,6 +55,20 @@ const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraint
       channelCount: { exact: 1 },
     },
   },
+  // Isolate which single flag actually breaks device routing, rather than
+  // accepting all three enabled if only one of them is the real culprit.
+  aecOnlyDefault: {
+    label: 'only AEC at default (NS/AGC off)',
+    constraints: { noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } },
+  },
+  nsOnlyDefault: {
+    label: 'only NS at default (AEC/AGC off)',
+    constraints: { echoCancellation: false, autoGainControl: false, channelCount: { ideal: 2 } },
+  },
+  agcOnlyDefault: {
+    label: 'only AGC at default (AEC/NS off)',
+    constraints: { echoCancellation: false, noiseSuppression: false, channelCount: { ideal: 2 } },
+  },
 }
 const PRESET_KEYS = Object.keys(PRESETS)
 
