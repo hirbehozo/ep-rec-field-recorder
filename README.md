@@ -75,6 +75,14 @@ without re-recording anything.
   itself still has to stay in front.
 - **16-bit.** WAV output is always 16-bit PCM regardless of the source interface's native
   bit depth.
+- **Echo cancellation stays on.** Confirmed on real hardware: explicitly disabling
+  `echoCancellation` breaks Android's audio device routing outright &mdash; `getUserMedia`
+  reports the requested USB device as open with matching settings while silently capturing
+  the phone's built-in mic instead. `noiseSuppression` and `autoGainControl` can both be
+  disabled safely; only echo cancellation causes this. It is left at the browser's default
+  rather than forced off. For a direct line-in signal there is no acoustic echo to cancel in
+  the first place, so in practice this costs nothing. See `/diagnostics` for the constraint
+  presets used to isolate this, in case it needs re-diagnosing on different hardware.
 
 ## Sharing it
 

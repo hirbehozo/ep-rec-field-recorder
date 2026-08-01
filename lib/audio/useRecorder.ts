@@ -66,8 +66,15 @@ export function useRecorder() {
       close()
       setState((s) => ({ ...s, status: 'opening', error: null, deviceMessage: null }))
 
+      // echoCancellation is deliberately left unset (not forced to false):
+      // explicitly disabling it broke Android's device routing entirely on
+      // real hardware — getUserMedia would report the requested USB device
+      // as open with matching settings while silently capturing the phone's
+      // built-in mic instead. noiseSuppression/autoGainControl can be
+      // disabled safely. For a direct line-in signal with no acoustic loop
+      // between a speaker and a mic, echo cancellation has ~nothing to do
+      // anyway, so this costs effectively nothing.
       const constraints: MediaTrackConstraints = {
-        echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
         channelCount: { ideal: 2 },

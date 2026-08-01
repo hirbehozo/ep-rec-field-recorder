@@ -27,14 +27,24 @@ interface TrackDiagnostics {
   presetLabel: string
 }
 
-// Android maps different getUserMedia constraint shapes to different
-// internal audio source types (VOICE_COMMUNICATION, UNPROCESSED, MIC, ...),
-// and the OS's automatic "prefer a connected USB/wired accessory over the
-// built-in mic" routing may only apply to some of them. These presets let
-// that be tested against the same device without a redeploy per hypothesis.
+// Confirmed on real hardware: explicitly disabling echoCancellation breaks
+// Android's device routing entirely — getUserMedia reports the requested
+// USB device as open with matching settings while silently capturing the
+// phone's built-in mic instead. noiseSuppression/autoGainControl can both
+// be disabled safely; echoCancellation cannot. This matches what
+// lib/audio/useRecorder.ts now requests. The other presets stay here for
+// troubleshooting different hardware, where the answer may differ.
 const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraints }> = {
-  raw: {
-    label: 'raw (AEC/NS/AGC off, stereo ideal)',
+  recommended: {
+    label: 'recommended (AEC default, NS/AGC off, stereo ideal)',
+    constraints: { noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } },
+  },
+  processed: {
+    label: 'fully processed (AEC/NS/AGC all default, stereo ideal)',
+    constraints: { channelCount: { ideal: 2 } },
+  },
+  allOff: {
+    label: 'all off (AEC/NS/AGC off, stereo ideal) — routing may fail',
     constraints: {
       echoCancellation: false,
       noiseSuppression: false,
@@ -42,12 +52,8 @@ const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraint
       channelCount: { ideal: 2 },
     },
   },
-  processed: {
-    label: 'processed (browser default AEC/NS/AGC, stereo ideal)',
-    constraints: { channelCount: { ideal: 2 } },
-  },
   monoExact: {
-    label: 'raw, mono exact',
+    label: 'all off, mono exact — routing may fail',
     constraints: {
       echoCancellation: false,
       noiseSuppression: false,
@@ -55,8 +61,9 @@ const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraint
       channelCount: { exact: 1 },
     },
   },
-  // Isolate which single flag actually breaks device routing, rather than
-  // accepting all three enabled if only one of them is the real culprit.
+  // Isolate which single flag actually breaks device routing on whatever
+  // hardware this is running against, rather than assuming it matches the
+  // phone this was first diagnosed on.
   aecOnlyDefault: {
     label: 'only AEC at default (NS/AGC off)',
     constraints: { noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } },
@@ -71,6 +78,7 @@ const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraint
   },
 }
 const PRESET_KEYS = Object.keys(PRESETS)
+const DEFAULT_PRESET = 'recommended'
 
 interface LogMessage {
   id: number
@@ -133,7 +141,7 @@ export default function DiagnosticsPage() {
   const [audioError, setAudioError] = useState('')
   const [trackDiag, setTrackDiag] = useState<TrackDiagnostics | null>(null)
 
-  const [preset, setPreset] = useState('raw')
+  const [preset, setPreset] = useState(DEFAULT_PRESET)
   const [connecting, setConnecting] = useState(false)
   const [messages, setMessages] = useState<LogMessage[]>([])
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -472,9 +480,10 @@ export default function DiagnosticsPage() {
           Does this phone actually expose a USB audio interface to Chrome? Press Connect and read
           the answer below. Settings resolving correctly is not the same as audio actually arriving
           from the right device &mdash; watch the peak meter with real sound, not just the numbers
-          above it. If it stays flat, try the constraint presets under Audio input devices: Android
-          routes different constraint shapes through different internal audio paths, and device
-          selection is not honored the same way on all of them.
+          above it. Confirmed on real hardware: forcing echo cancellation off breaks Android&apos;s
+          device routing (it silently captures the phone mic instead), so the recommended preset
+          leaves it at default. If the peak meter still stays flat on different hardware, try the
+          other constraint presets under Audio input devices to re-diagnose.
         </p>
       </header>
 
@@ -651,10 +660,15 @@ export default function DiagnosticsPage() {
             <DiagLine label="channels" status="pass" detail={String(trackDiag.channelCount)} />
             <DiagLine
               label="echo cancellation"
-              status={trackDiag.echoCancellation ? 'fail' : 'pass'}
-              detail={trackDiag.echoCancellation ? 'ON (unwanted)' : 'off'}
-              hint="The browser ignored the request to disable this. Signal may be processed."
+              status="unknown"
+              detail={trackDiag.echoCancellation ? 'on' : 'off'}
             />
+            <p className="-mt-1 mb-2 text-xs text-zinc-500">
+              Confirmed on real hardware: forcing this off breaks Android&apos;s device routing
+              entirely (silently captures the phone mic instead), so the recommended preset leaves
+              it at default rather than disabling it. There is no echo to cancel on a direct line-in
+              signal, so this costs effectively nothing.
+            </p>
             <DiagLine
               label="noise suppression"
               status={trackDiag.noiseSuppression ? 'fail' : 'pass'}
