@@ -2,7 +2,7 @@ export const DM_COLS = 96
 export const DM_ROWS = 54
 
 // Verbatim from the prototype: 5x7 bitmap font as column bytes, proof-read glyph by glyph.
-const FONT: Record<string, number[]> = {
+export const FONT: Record<string, number[]> = {
   ' ': [0, 0, 0, 0, 0],
   '0': [62, 81, 73, 69, 62],
   '1': [0, 66, 127, 64, 0],

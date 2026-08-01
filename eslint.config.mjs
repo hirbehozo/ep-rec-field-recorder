@@ -21,7 +21,9 @@ const eslintConfig = [
       'next-env.d.ts',
       'coverage/**',
       'public/rec-worklet.js',
+      'public/sw.js',
       'reference/**',
+      'scripts/**',
     ],
   },
 ]

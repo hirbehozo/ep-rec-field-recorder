@@ -11,6 +11,7 @@
     "test": "jest --passWithNoTests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "icons": "node scripts/generate-icons.ts",
     "prepare": "husky"
   },
   "dependencies": {
