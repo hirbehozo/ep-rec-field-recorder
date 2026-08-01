@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#C9C7C2">
+<title>EP-REC field recorder</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --case:#C9C7C2;
+  --face:#DEDCD7;
+  --face-hi:#F1EFEA;
+  --edge:#A8A59E;
+  --rule:#B3B0A9;
+  --ink:#14130F;
+  --legend:#6F6C64;
+  --signal:#F24E00;
+  --lcd:#A7B79C;
+  --lcd-ink:#141C0E;
+  --sans:"Archivo","Roboto Condensed","Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--edge)}
+body{
+  font-family:var(--sans);color:var(--ink);font-size:15px;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  -webkit-user-select:none;user-select:none;
+}
+.case{
+  max-width:430px;margin:0 auto;min-height:100vh;background:var(--case);
+  border-left:1px solid var(--edge);border-right:1px solid var(--edge);
+  padding:0 13px 44px;
+}
+
+/* identity strip */
+.brand{display:flex;align-items:flex-end;gap:9px;padding:13px 1px 11px}
+.brand .mark{font-size:23px;font-weight:800;letter-spacing:-.035em;line-height:.85}
+.brand .mark i{font-style:normal;color:var(--signal)}
+.brand .sub{font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--legend);
+  text-transform:uppercase;padding-bottom:2px}
+.brand .rev{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.14em;
+  color:var(--legend);padding-bottom:2px}
+
+/* section headers: knocked-out tag on a hairline */
+.hdr{display:flex;align-items:center;gap:8px;margin:16px 0 8px}
+.hdr .tag{background:var(--ink);color:var(--face-hi);font-size:9px;font-weight:700;
+  letter-spacing:.19em;padding:3px 7px 2px;text-transform:uppercase}
+.hdr .rule{flex:1;height:1px;background:var(--rule)}
+.hdr .val{font-size:9px;font-weight:700;letter-spacing:.14em;color:var(--legend);
+  text-transform:uppercase}
+
+/* display */
+.screen{
+  background:var(--lcd);padding:9px;border:1px solid var(--ink);
+  box-shadow:inset 0 2px 5px rgba(20,28,14,.34);
+}
+.screen canvas{display:block;width:100%;image-rendering:pixelated}
+
+/* keys */
+.key{
+  font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink);
+  background:linear-gradient(180deg,var(--face-hi) 0%,var(--face) 52%,#D2CFC8 100%);
+  border:1px solid var(--ink);border-radius:3px;padding:11px 10px 10px;cursor:pointer;
+  box-shadow:0 3px 0 var(--edge),0 3px 0 1px var(--ink);
+  transition:transform .05s linear,box-shadow .05s linear;
+}
+.key:active:not(:disabled){transform:translateY(3px);box-shadow:0 0 0 var(--edge),0 0 0 1px var(--ink)}
+.key:disabled{opacity:.42;box-shadow:0 1px 0 var(--edge);cursor:default}
+.key:focus-visible{outline:2px solid var(--signal);outline-offset:3px}
+.key.wide{font-size:15px;letter-spacing:.22em;padding:20px 10px 19px}
+.key.rec{
+  background:linear-gradient(180deg,#FF7A2E 0%,var(--signal) 48%,#D34200 100%);
+  color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.28);
+}
+.key.rec.armed{background:linear-gradient(180deg,var(--face-hi) 0%,var(--face) 52%,#D2CFC8 100%);
+  color:var(--ink);text-shadow:none}
+.key.mini{font-size:9px;letter-spacing:.13em;padding:7px 8px 6px;box-shadow:0 2px 0 var(--edge),0 2px 0 1px var(--ink)}
+.key.mini:active:not(:disabled){transform:translateY(2px)}
+
+.transport{display:grid;grid-template-columns:1fr 84px;gap:9px;margin-top:11px}
+
+/* channel rows */
+.strip{border-top:1px solid var(--rule);display:grid;grid-template-columns:22px 1fr;
+  gap:10px;align-items:center;padding:9px 0}
+.strip:first-child{border-top:none}
+.strip .n{font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--face-hi);
+  background:var(--ink);text-align:center;padding:2px 0;line-height:1.25}
+.strip .lg{font-size:9px;font-weight:700;letter-spacing:.18em;color:var(--legend);
+  text-transform:uppercase;display:block;margin-bottom:5px}
+select{
+  width:100%;font-family:var(--sans);font-size:12.5px;font-weight:600;padding:9px 8px;
+  background:var(--face-hi);border:1px solid var(--ink);border-radius:3px;color:var(--ink);
+  box-shadow:0 2px 0 var(--edge);appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink) 50%),linear-gradient(135deg,var(--ink) 50%,transparent 50%);
+  background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:28px;
+}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;
+  letter-spacing:.04em;text-transform:none;padding:8px 10px 7px}
+.led{width:7px;height:7px;border-radius:50%;background:#8F8C85;
+  box-shadow:inset 0 1px 1px rgba(0,0,0,.45)}
+.chip[aria-pressed="true"] .led{background:var(--signal);box-shadow:0 0 5px rgba(242,78,0,.85)}
+.nudge{display:flex;align-items:center;gap:8px}
+.nudge .read{font-size:14px;font-weight:700;letter-spacing:.02em;min-width:66px;text-align:center;
+  font-variant-numeric:tabular-nums}
+.nudge .hint{font-size:9px;font-weight:700;letter-spacing:.13em;color:var(--legend);text-transform:uppercase}
+
+/* takes */
+.take{border-top:1px solid var(--rule);padding:9px 0}
+.take:first-child{border-top:none}
+.take .top{display:flex;align-items:center;gap:9px}
+.take .n{font-size:10px;font-weight:800;color:var(--face-hi);background:var(--ink);
+  padding:2px 5px;letter-spacing:.06em}
+.take .dur{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.take .when{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.11em;color:var(--legend)}
+.take .meta{font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--legend);
+  margin:4px 0 8px;text-transform:uppercase}
+.take .meta b{color:var(--ink);font-weight:700}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.acts .del{color:var(--legend)}
+.empty{font-size:12px;font-weight:600;color:var(--legend);padding:12px 0 4px;line-height:1.5}
+
+/* signal path */
+.diag{font-size:11px;font-weight:600;line-height:1.75;letter-spacing:.02em}
+.diag div{display:flex;gap:10px;align-items:baseline}
+.diag i{font-style:normal;font-size:9px;font-weight:700;letter-spacing:.16em;
+  color:var(--legend);text-transform:uppercase;min-width:96px}
+.diag .ok{color:#1C6B2B;font-weight:700}
+.diag .bad{color:#C02800;font-weight:700}
+
+.msg{border:1px solid var(--ink);background:var(--signal);color:#fff;padding:9px 10px;
+  font-size:12px;font-weight:600;line-height:1.45;margin-top:10px;border-radius:2px}
+.msg.q{background:var(--face-hi);color:var(--ink);border-color:var(--rule)}
+@media (prefers-reduced-motion:reduce){.key{transition:none}}
+</style>
+</head>
+<body>
+<div class="case">
+
+  <div class="brand">
+    <span class="mark">EP<i>&ndash;</i>REC</span>
+    <span class="sub">field recorder</span>
+    <span class="rev">01</span>
+  </div>
+
+  <div class="screen"><canvas id="lcd"></canvas></div>
+
+  <div class="transport">
+    <button class="key wide rec" id="btnRec">Record</button>
+    <button class="key wide" id="btnScan">Scan</button>
+  </div>
+
+  <div id="msgs"></div>
+
+  <div class="hdr"><span class="tag">Input</span><span class="rule"></span><span class="val" id="inState">standby</span></div>
+  <div>
+    <div class="strip">
+      <span class="n">1</span>
+      <div><span class="lg">Audio source</span>
+        <select id="audioSel"><option>press scan to list devices</option></select></div>
+    </div>
+    <div class="strip">
+      <span class="n">2</span>
+      <div><span class="lg">Midi ports</span><div class="chips" id="chips"></div></div>
+    </div>
+    <div class="strip">
+      <span class="n">3</span>
+      <div><span class="lg">Midi offset</span>
+        <div class="nudge">
+          <button class="key mini" id="offDn">&minus;5</button>
+          <span class="read" id="offVal">0 ms</span>
+          <button class="key mini" id="offUp">+5</button>
+          <span class="hint">vs audio</span>
+        </div></div>
+    </div>
+  </div>
+
+  <div class="hdr"><span class="tag">Takes</span><span class="rule"></span><span class="val" id="takeCount">0</span></div>
+  <div id="takes"></div>
+
+  <div class="hdr"><span class="tag">Signal</span><span class="rule"></span></div>
+  <div class="diag" id="diag"></div>
+
+</div>
+
+<script type="text/plain" id="workletSrc">
+const CHUNK = 8192;
+class Rec extends AudioWorkletProcessor {
+  constructor(){
+    super();
+    this.on = false;
+    this.l = new Float32Array(CHUNK);
+    this.r = new Float32Array(CHUNK);
+    this.n = 0; this.blocks = 0; this.pl = 0; this.pr = 0;
+    this.port.onmessage = (e) => {
+      if (e.data.on !== undefined){
+        this.on = e.data.on;
+        if (!this.on) this.flush();
+        this.n = 0;
+      }
+    };
+  }
+  flush(){
+    if (this.n === 0) return;
+    const l = this.l.slice(0, this.n);
+    const r = this.r.slice(0, this.n);
+    this.port.postMessage({type:'pcm', l, r, frames:this.n}, [l.buffer, r.buffer]);
+    this.n = 0;
+  }
+  process(inputs){
+    const inp = inputs[0];
+    if (!inp || inp.length === 0) return true;
+    const L = inp[0];
+    const R = inp.length > 1 ? inp[1] : inp[0];
+    if (!L) return true;
+    for (let i = 0; i < L.length; i++){
+      const a = L[i] < 0 ? -L[i] : L[i];
+      const b = R[i] < 0 ? -R[i] : R[i];
+      if (a > this.pl) this.pl = a;
+      if (b > this.pr) this.pr = b;
+    }
+    if (this.on){
+      for (let i = 0; i < L.length; i++){
+        this.l[this.n] = L[i]; this.r[this.n] = R[i]; this.n++;
+        if (this.n === CHUNK) this.flush();
+      }
+    }
+    this.blocks++;
+    if (this.blocks % 8 === 0){
+      this.port.postMessage({type:'meter', pl:this.pl, pr:this.pr});
+      this.pl = 0; this.pr = 0;
+    }
+    return true;
+  }
+}
+registerProcessor('rec', Rec);
+</script>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const pad = (n, w) => String(n).padStart(w, '0');
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = (n) => NOTES[n % 12] + (Math.floor(n / 12) - 1);
+
+/* ===================== dot matrix display ===================== */
+const FONT = {" ":[0,0,0,0,0],"0":[62,81,73,69,62],"1":[0,66,127,64,0],"2":[66,97,81,73,70],"3":[33,65,69,75,49],"4":[24,20,18,127,16],"5":[39,69,69,69,57],"6":[60,74,73,73,48],"7":[1,113,9,5,3],"8":[54,73,73,73,54],"9":[6,73,73,41,30],"A":[126,9,9,9,126],"B":[127,73,73,73,54],"C":[62,65,65,65,34],"D":[127,65,65,34,28],"E":[127,73,73,73,65],"F":[127,9,9,9,1],"G":[62,65,73,73,122],"H":[127,8,8,8,127],"I":[0,65,127,65,0],"J":[32,64,65,63,1],"K":[127,8,20,34,65],"L":[127,64,64,64,64],"M":[127,2,12,2,127],"N":[127,4,8,16,127],"O":[62,65,65,65,62],"P":[127,9,9,9,6],"Q":[62,65,81,33,94],"R":[127,9,25,41,70],"S":[70,73,73,73,49],"T":[1,1,127,1,1],"U":[63,64,64,64,63],"V":[31,32,64,32,31],"W":[127,32,24,32,127],"X":[99,20,8,20,99],"Y":[3,4,120,4,3],"Z":[97,81,73,69,67],":":[0,0,54,0,0],".":[0,0,96,96,0],"-":[8,8,8,8,8],"/":[96,16,8,4,3],"+":[8,8,62,8,8],"#":[28,62,62,62,28],"!":[0,0,95,0,0],"*":[17,10,4,10,17],">":[0,34,20,8,0],"<":[0,8,20,34,0],"=":[20,20,20,20,20],"?":[2,1,89,5,2],"_":[64,64,64,64,64]};
+const COLS = 96, ROWS = 54;
+const DM = { buf: new Uint8Array(COLS * ROWS), pitch: 4, dot: 3, ctx: null, pat: null, dpr: 1 };
+
+function dmPlot(x, y, v){
+  if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return;
+  DM.buf[y * COLS + x] = v;
+}
+function dmChar(ch, x, y, s, v){
+  const g = FONT[ch] || FONT['?'];
+  for (let c = 0; c < 5; c++){
+    for (let r = 0; r < 7; r++){
+      if (!(g[c] & (1 << r))) continue;
+      for (let a = 0; a < s; a++) for (let b = 0; b < s; b++) dmPlot(x + c*s + a, y + r*s + b, v);
+    }
+  }
+  return x + (5 * s) + s;   // advance including one scaled space
+}
+function dmText(str, x, y, s, v){
+  let cx = x;
+  for (const ch of String(str).toUpperCase()) cx = dmChar(ch, cx, y, s, v);
+  return cx;
+}
+function dmWidth(str, s){ return String(str).length * 6 * s - s; }
+function dmRight(str, xEnd, y, s, v){ dmText(str, xEnd - dmWidth(str, s), y, s, v); }
+function dmBar(x0, x1, y, h, frac, hotFrom){
+  const n = x1 - x0;
+  const lit = Math.round(Math.max(0, Math.min(1, frac)) * n);
+  for (let i = 0; i < lit; i++){
+    const v = (i / n) >= hotFrom ? 2 : 1;
+    for (let r = 0; r < h; r++) dmPlot(x0 + i, y + r, v);
+  }
+  // end-of-scale tick so the ceiling is always visible
+  for (let r = 0; r < h; r++) dmPlot(x1, y + r, 1);
+}
+function dmClear(){ DM.buf.fill(0); }
+function dmFill(){ DM.buf.fill(1); }
+
+function dmResize(){
+  const c = $('#lcd');
+  const w = c.clientWidth;
+  if (!w) return;
+  DM.dpr = Math.min(3, window.devicePixelRatio || 1);
+  const pitch = w / COLS;
+  c.style.height = (pitch * ROWS) + 'px';
+  c.width = Math.round(w * DM.dpr);
+  c.height = Math.round(pitch * ROWS * DM.dpr);
+  DM.pitch = pitch * DM.dpr;
+  DM.dot = Math.max(1, Math.round(DM.pitch * 0.72));
+  DM.ctx = c.getContext('2d');
+  // pre-render the unlit dot field once, then stamp it as a pattern each frame
+  const p = document.createElement('canvas');
+  p.width = p.height = Math.max(1, Math.round(DM.pitch));
+  const pc = p.getContext('2d');
+  pc.fillStyle = 'rgba(20,28,14,.11)';
+  pc.fillRect(0, 0, DM.dot, DM.dot);
+  DM.pat = DM.ctx.createPattern(p, 'repeat');
+}
+function dmRender(){
+  const ctx = DM.ctx;
+  if (!ctx) return;
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = DM.pat;
+  ctx.fillRect(0, 0, W, H);
+  for (const [val, col] of [[1, '#141C0E'], [2, '#F24E00']]){
+    ctx.beginPath();
+    for (let y = 0; y < ROWS; y++){
+      const row = y * COLS;
+      for (let x = 0; x < COLS; x++){
+        if (DM.buf[row + x] !== val) continue;
+        ctx.rect(x * DM.pitch, y * DM.pitch, DM.dot, DM.dot);
+      }
+    }
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+}
+
+/* ===================== state ===================== */
+const S = {
+  midi: null, ports: new Map(),
+  ctx: null, stream: null, source: null, node: null,
+  sampleRate: 0, channels: 0, deviceLabel: '',
+  recording: false, t0: 0, frames: 0,
+  writer: null, memParts: null, memBlobs: {}, recId: null, startedAt: null,
+  events: [], clocks: [], liveClocks: [],
+  peakL: 0, peakR: 0, holdL: 0, holdR: 0, clipped: false,
+  offsetMs: 0, sessions: [], dir: null, wakeLock: null,
+  lastEvt: '', boot: performance.now(), takeNo: 0
+};
+
+function msg(text, quiet){
+  const d = document.createElement('div');
+  d.className = 'msg' + (quiet ? ' q' : '');
+  d.textContent = text;
+  $('#msgs').appendChild(d);
+  if (quiet) setTimeout(() => d.remove(), 6000);
+}
+const clearMsgs = () => { $('#msgs').innerHTML = ''; };
+const buzz = (ms) => { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} };
+
+function diag(){
+  const row = (k, ok, txt) =>
+    `<div><i>${k}</i><span class="${ok ? 'ok' : 'bad'}">${txt}</span></div>`;
+  $('#diag').innerHTML =
+    row('web midi', !!S.midi, S.midi ? S.ports.size + ' port' + (S.ports.size === 1 ? '' : 's') : 'unavailable') +
+    row('audio in', !!S.stream, S.stream ? S.channels + ' ch / ' + (S.sampleRate / 1000).toFixed(1) + ' kHz' : 'not open') +
+    row('storage', !!S.dir, S.dir ? 'origin private fs' : 'memory only') +
+    row('screen lock', !!S.wakeLock, S.wakeLock ? 'held' : 'released') +
+    (S.deviceLabel ? `<div><i>device</i><span>${S.deviceLabel}</span></div>` : '');
+}
+
+/* ===================== storage ===================== */
+async function initStore(){
+  try {
+    const root = await navigator.storage.getDirectory();
+    S.dir = await root.getDirectoryHandle('ep-rec', { create: true });
+    S.sessions = await readIndex();
+  } catch (e) {
+    S.dir = null; S.sessions = [];
+    msg('Persistent storage is unavailable, so takes live in memory only. Export before you close the tab.');
+  }
+  S.takeNo = S.sessions.reduce((m, s) => Math.max(m, s.n || 0), 0);
+  renderTakes();
+}
+async function readIndex(){
+  try {
+    const fh = await S.dir.getFileHandle('index.json');
+    return JSON.parse(await (await fh.getFile()).text());
+  } catch (e) { return []; }
+}
+async function writeIndex(){
+  if (!S.dir) return;
+  const fh = await S.dir.getFileHandle('index.json', { create: true });
+  const w = await fh.createWritable();
+  await w.write(new Blob([JSON.stringify(S.sessions)], { type: 'application/json' }));
+  await w.close();
+}
+async function putFile(name, blob){
+  const fh = await S.dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob); await w.close();
+}
+async function getBlob(name){
+  const fh = await S.dir.getFileHandle(name);
+  return await fh.getFile();
+}
+
+/* ===================== wav ===================== */
+function wavHeader(dataBytes, rate, ch){
+  const b = new ArrayBuffer(44), v = new DataView(b);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + dataBytes, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, ch, true); v.setUint32(24, rate, true);
+  v.setUint32(28, rate * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, dataBytes, true);
+  return new Uint8Array(b);
+}
+function interleave(l, r, n){
+  const out = new Int16Array(n * 2);
+  for (let i = 0, j = 0; i < n; i++){
+    let a = l[i], b = r[i];
+    a = a > 1 ? 1 : a < -1 ? -1 : a;
+    b = b > 1 ? 1 : b < -1 ? -1 : b;
+    out[j++] = a < 0 ? a * 0x8000 : a * 0x7FFF;
+    out[j++] = b < 0 ? b * 0x8000 : b * 0x7FFF;
+  }
+  return out;
+}
+
+/* ===================== standard midi file ===================== */
+function vlq(n){
+  const out = [n & 0x7F]; n >>= 7;
+  while (n > 0){ out.unshift((n & 0x7F) | 0x80); n >>= 7; }
+  return out;
+}
+function chunk(id, bytes){
+  const h = [];
+  for (const c of id) h.push(c.charCodeAt(0));
+  const L = bytes.length;
+  h.push((L >> 24) & 255, (L >> 16) & 255, (L >> 8) & 255, L & 255);
+  return h.concat(bytes);
+}
+function buildSMF(events, bpm, offsetMs){
+  const PPQ = 480;
+  const tempo = bpm && isFinite(bpm) ? bpm : 120;
+  const toTick = (ms) => Math.max(0, Math.round((ms + offsetMs) * PPQ * tempo / 60000));
+  const usable = events.filter(e => e.d[0] >= 0x80 && e.d[0] <= 0xEF);
+  const ports = [...new Set(usable.map(e => e.p))];
+  const tracks = [];
+  const mpqn = Math.round(60000000 / tempo);
+  let t = [];
+  t = t.concat(vlq(0), [0xFF, 0x51, 0x03, (mpqn >> 16) & 255, (mpqn >> 8) & 255, mpqn & 255]);
+  t = t.concat(vlq(0), [0xFF, 0x58, 0x04, 4, 2, 24, 8]);
+  t = t.concat(vlq(0), [0xFF, 0x2F, 0x00]);
+  tracks.push(chunk('MTrk', t));
+  for (const p of ports){
+    const evs = usable.filter(e => e.p === p).sort((a, b) => a.t - b.t);
+    const name = p.slice(0, 60);
+    let bytes = [].concat(vlq(0), [0xFF, 0x03, name.length], [...name].map(c => c.charCodeAt(0) & 0x7F));
+    let last = 0;
+    const active = new Set();
+    for (const e of evs){
+      const tick = toTick(e.t);
+      const d = e.d.slice();
+      let st = d[0];
+      if ((st & 0xF0) === 0x90 && d[2] === 0){ d[0] = 0x80 | (st & 0x0F); st = d[0]; }
+      bytes = bytes.concat(vlq(Math.max(0, tick - last)), Array.from(d));
+      last = Math.max(last, tick);
+      const key = (st & 0x0F) + ':' + d[1];
+      if ((st & 0xF0) === 0x90) active.add(key);
+      if ((st & 0xF0) === 0x80) active.delete(key);
+    }
+    for (const key of active){
+      const [ch, n] = key.split(':').map(Number);
+      bytes = bytes.concat(vlq(0), [0x80 | ch, n, 0]);
+    }
+    bytes = bytes.concat(vlq(0), [0xFF, 0x2F, 0x00]);
+    tracks.push(chunk('MTrk', bytes));
+  }
+  const nt = tracks.length;
+  const head = chunk('MThd', [0, 1, (nt >> 8) & 255, nt & 255, (PPQ >> 8) & 255, PPQ & 255]);
+  const all = new Uint8Array(head.length + tracks.reduce((a, b) => a + b.length, 0));
+  let o = 0;
+  all.set(head, o); o += head.length;
+  for (const tr of tracks){ all.set(tr, o); o += tr.length; }
+  return new Blob([all], { type: 'audio/midi' });
+}
+
+/* ===================== midi in ===================== */
+function describe(d){
+  const st = d[0] & 0xF0, ch = (d[0] & 0x0F) + 1;
+  if (st === 0x90 && d[2] > 0) return ch + ' ' + noteName(d[1]) + ' ' + d[2];
+  if (st === 0x80 || st === 0x90) return ch + ' ' + noteName(d[1]) + ' OFF';
+  if (st === 0xB0) return ch + ' CC' + d[1] + ' ' + d[2];
+  if (st === 0xC0) return ch + ' PRG ' + d[1];
+  if (st === 0xD0) return ch + ' AT ' + d[1];
+  if (st === 0xE0) return ch + ' BEND ' + ((d[2] << 7 | d[1]) - 8192);
+  if (d[0] === 0xFA) return 'START';
+  if (d[0] === 0xFB) return 'CONT';
+  if (d[0] === 0xFC) return 'STOP';
+  return 'SYS ' + d[0].toString(16).toUpperCase();
+}
+function attach(port){
+  port.onmidimessage = (e) => {
+    const t = e.timeStamp || performance.now();
+    const rec = S.ports.get(port.id);
+    if (!rec || !rec.on) return;
+    const d = e.data;
+    if (d[0] === 0xFE) return;
+    if (d[0] === 0xF8){
+      S.liveClocks.push(t);
+      if (S.liveClocks.length > 73) S.liveClocks.shift();
+      if (S.recording) S.clocks.push(t - S.t0);
+      return;
+    }
+    S.lastEvt = describe(d);
+    if (S.recording) S.events.push({ t: t - S.t0, p: rec.name, d: Array.from(d) });
+  };
+}
+function refreshPorts(){
+  if (!S.midi) return;
+  const seen = new Set();
+  for (const p of S.midi.inputs.values()){
+    seen.add(p.id);
+    if (!S.ports.has(p.id)){
+      S.ports.set(p.id, { port: p, name: p.name || 'input', on: true });
+      attach(p);
+    }
+  }
+  for (const id of [...S.ports.keys()]) if (!seen.has(id)) S.ports.delete(id);
+  const box = $('#chips');
+  box.innerHTML = '';
+  if (!S.ports.size){
+    box.innerHTML = '<span style="font-size:11px;font-weight:600;color:var(--legend)">No ports found. Check the USB cable.</span>';
+  }
+  for (const [, r] of S.ports){
+    const b = document.createElement('button');
+    b.className = 'key mini chip';
+    b.innerHTML = '<span class="led"></span>' + r.name;
+    b.setAttribute('aria-pressed', String(r.on));
+    b.onclick = () => { r.on = !r.on; b.setAttribute('aria-pressed', String(r.on)); buzz(8); };
+    box.appendChild(b);
+  }
+  diag();
+}
+function liveBPM(){
+  const c = S.liveClocks;
+  if (c.length < 25) return null;
+  const span = c[c.length - 1] - c[c.length - 25];
+  if (span <= 0) return null;
+  const b = 60000 / span;
+  return (b > 20 && b < 400) ? b : null;
+}
+
+/* ===================== audio ===================== */
+let workletURL = null;
+function closeAudio(){
+  if (S.stream) S.stream.getTracks().forEach(t => t.stop());
+  if (S.ctx) S.ctx.close().catch(() => {});
+  S.stream = S.ctx = S.source = S.node = null;
+}
+async function openAudio(deviceId){
+  closeAudio();
+  const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+    channelCount: { ideal: 2 } };
+  if (deviceId) audio.deviceId = { exact: deviceId };
+  S.stream = await navigator.mediaDevices.getUserMedia({ audio });
+  const track = S.stream.getAudioTracks()[0];
+  const set = track.getSettings();
+  S.deviceLabel = track.label || 'unnamed input';
+  track.onended = () => {
+    if (S.recording) stopRec();
+    msg('The audio input disappeared. Check the USB cable, then press scan.');
+  };
+  try {
+    S.ctx = new AudioContext(set.sampleRate
+      ? { sampleRate: set.sampleRate, latencyHint: 'interactive' } : { latencyHint: 'interactive' });
+  } catch (e) { S.ctx = new AudioContext(); }
+  await S.ctx.resume();
+  if (!workletURL){
+    workletURL = URL.createObjectURL(new Blob([$('#workletSrc').textContent], { type: 'application/javascript' }));
+  }
+  await S.ctx.audioWorklet.addModule(workletURL);
+  S.sampleRate = S.ctx.sampleRate;
+  S.channels = set.channelCount || 2;
+  S.source = S.ctx.createMediaStreamSource(S.stream);
+  S.node = new AudioWorkletNode(S.ctx, 'rec', {
+    numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
+    channelCount: 2, channelCountMode: 'explicit'
+  });
+  S.node.port.onmessage = onWorklet;
+  S.source.connect(S.node);
+  const g = S.ctx.createGain(); g.gain.value = 0;
+  S.node.connect(g); g.connect(S.ctx.destination);
+  $('#inState').textContent = S.deviceLabel.slice(0, 22);
+  diag();
+}
+function onWorklet(e){
+  const m = e.data;
+  if (m.type === 'meter'){
+    S.peakL = Math.max(S.peakL, m.pl); S.peakR = Math.max(S.peakR, m.pr);
+    if (m.pl >= 0.999 || m.pr >= 0.999) S.clipped = true;
+    return;
+  }
+  if (m.type === 'pcm' && (S.writer || S.memParts)){
+    const pcm = interleave(m.l, m.r, m.frames);
+    S.frames += m.frames;
+    const bytes = new Uint8Array(pcm.buffer);
+    if (S.writer) S.writer.write(bytes).catch(() => {});
+    else S.memParts.push(bytes);
+  }
+}
+
+/* ===================== connect ===================== */
+async function scan(){
+  clearMsgs();
+  if (!window.isSecureContext){
+    msg('This page needs https or localhost before the browser will hand over MIDI and audio.');
+    return false;
+  }
+  if (navigator.requestMIDIAccess){
+    try {
+      S.midi = await navigator.requestMIDIAccess({ sysex: false });
+      S.midi.onstatechange = refreshPorts;
+      refreshPorts();
+    } catch (e) { msg('MIDI access was refused: ' + e.message); }
+  } else {
+    msg('Web MIDI is missing here. Chrome or Edge on Android works, Firefox and iOS Safari do not.');
+  }
+  let devices = [];
+  try {
+    const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+    probe.getTracks().forEach(t => t.stop());
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+  } catch (e) {
+    msg('Audio permission was refused, so nothing can be recorded: ' + e.message);
+    diag(); return false;
+  }
+  const sel = $('#audioSel');
+  sel.innerHTML = '';
+  for (const d of devices){
+    const o = document.createElement('option');
+    o.value = d.deviceId;
+    o.textContent = d.label || 'input ' + d.deviceId.slice(0, 6);
+    sel.appendChild(o);
+  }
+  const guess = devices.find(d => /usb|sidekick|ep-1|interface|teenage|audio/i.test(d.label));
+  if (guess) sel.value = guess.deviceId;
+  sel.onchange = () => openAudio(sel.value).catch(e => msg('Could not open that input: ' + e.message));
+  try { await openAudio(sel.value); }
+  catch (e) { msg('Could not open that input: ' + e.message); return false; }
+  if (devices.length && !/usb|sidekick|ep-1|interface/i.test(S.deviceLabel)){
+    msg('That input looks like the phone microphone rather than the Sidekick. Pick the USB device above.', true);
+  }
+  return true;
+}
+
+/* ===================== transport ===================== */
+async function lock(){
+  try {
+    S.wakeLock = await navigator.wakeLock.request('screen');
+    S.wakeLock.onrelease = () => { S.wakeLock = null; diag(); };
+  } catch (e) { S.wakeLock = null; }
+  diag();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && S.recording && !S.wakeLock) lock();
+});
+
+async function startRec(){
+  if (!S.ctx) return;
+  S.takeNo += 1;
+  S.recId = 'T' + new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+  S.startedAt = new Date().toISOString();
+  S.frames = 0; S.events = []; S.clocks = []; S.clipped = false;
+  S.memParts = null; S.writer = null;
+  if (S.dir){
+    try {
+      const fh = await S.dir.getFileHandle(S.recId + '.wav', { create: true });
+      S.writer = await fh.createWritable();
+      await S.writer.write(wavHeader(0, S.sampleRate, 2));
+    } catch (e) { S.writer = null; }
+  }
+  if (!S.writer) S.memParts = [];
+  await lock();
+  S.t0 = performance.now();
+  S.recording = true;
+  S.node.port.postMessage({ on: true });
+  buzz(22);
+  $('#btnRec').textContent = 'Stop';
+  $('#btnRec').classList.add('armed');
+  $('#audioSel').disabled = true;
+}
+async function stopRec(){
+  if (!S.recording) return;
+  S.recording = false;
+  S.node.port.postMessage({ on: false });
+  buzz(12);
+  await new Promise(r => setTimeout(r, 220));
+  const dataBytes = S.frames * 4;
+  const wavName = S.recId + '.wav';
+  const inMem = !S.writer;
+  if (S.writer){
+    try {
+      await S.writer.write({ type: 'write', position: 0, data: wavHeader(dataBytes, S.sampleRate, 2) });
+      await S.writer.close();
+    } catch (e) { msg('Writing the wav failed: ' + e.message); }
+    S.writer = null;
+  } else {
+    S.memBlobs[wavName] = new Blob([wavHeader(dataBytes, S.sampleRate, 2), ...S.memParts], { type: 'audio/wav' });
+    S.memParts = null;
+  }
+  let bpm = null;
+  if (S.clocks.length > 25){
+    const span = S.clocks[S.clocks.length - 1] - S.clocks[0];
+    const b = 60000 * (S.clocks.length - 1) / (24 * span);
+    if (b > 20 && b < 400) bpm = Math.round(b * 10) / 10;
+  }
+  const meta = {
+    id: S.recId, n: S.takeNo, startedAt: S.startedAt,
+    duration: S.frames / S.sampleRate, sampleRate: S.sampleRate, channels: 2,
+    device: S.deviceLabel, bpm, clipped: S.clipped, offsetMs: S.offsetMs,
+    events: S.events.length, ports: [...new Set(S.events.map(e => e.p))],
+    wav: wavName, midi: S.recId + '.midi.json', mem: inMem
+  };
+  const payload = { meta, events: S.events, clocks: S.clocks };
+  const sidecar = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  if (inMem) S.memBlobs[meta.midi] = sidecar; else await putFile(meta.midi, sidecar);
+  S.cache = S.cache || {}; S.cache[meta.id] = payload;
+  S.sessions.unshift(meta);
+  await writeIndex();
+  renderTakes();
+  if (S.wakeLock){ try { await S.wakeLock.release(); } catch (e) {} S.wakeLock = null; }
+  $('#btnRec').textContent = 'Record';
+  $('#btnRec').classList.remove('armed');
+  $('#audioSel').disabled = false;
+  diag();
+  if (!S.frames) msg('That take captured no audio. The selected input is not delivering samples.');
+}
+async function onRecordKey(){
+  if (S.recording) return stopRec();
+  if (!S.ctx){
+    $('#btnRec').textContent = 'Wait';
+    const ok = await scan();
+    $('#btnRec').textContent = 'Record';
+    if (!ok || !S.ctx) return;
+  }
+  return startRec();
+}
+
+/* ===================== takes ===================== */
+const hms = (s) => pad(Math.floor(s / 3600), 2) + ':' + pad(Math.floor(s / 60) % 60, 2) + ':' + pad(Math.floor(s) % 60, 2);
+async function loadPayload(meta){
+  if (S.cache && S.cache[meta.id]) return S.cache[meta.id];
+  const b = meta.mem ? S.memBlobs[meta.midi] : await getBlob(meta.midi);
+  if (!b) throw new Error('sidecar missing');
+  const p = JSON.parse(await b.text());
+  S.cache = S.cache || {}; S.cache[meta.id] = p;
+  return p;
+}
+async function fileFor(meta, kind){
+  if (kind === 'wav'){
+    const b = meta.mem ? S.memBlobs[meta.wav] : await getBlob(meta.wav);
+    if (!b) throw new Error('memory-only takes do not survive a reload');
+    return new File([b], meta.id + '.wav', { type: 'audio/wav' });
+  }
+  const p = await loadPayload(meta);
+  if (kind === 'json') return new File([JSON.stringify(p, null, 1)], meta.id + '.json', { type: 'application/json' });
+  return new File([buildSMF(p.events, meta.bpm || 120, S.offsetMs)], meta.id + '.mid', { type: 'audio/midi' });
+}
+async function handOff(meta, kind){
+  try {
+    const f = await fileFor(meta, kind);
+    if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: f.name });
+    else {
+      const u = URL.createObjectURL(f);
+      const a = document.createElement('a');
+      a.href = u; a.download = f.name; a.click();
+      setTimeout(() => URL.revokeObjectURL(u), 4000);
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    msg('Export failed: ' + (e.message || e));
+  }
+}
+function renderTakes(){
+  const list = $('#takes');
+  $('#takeCount').textContent = S.sessions.length ? S.sessions.length + ' stored' : 'none';
+  if (!S.sessions.length){
+    list.innerHTML = '<div class="empty">Nothing recorded yet. Plug the Sidekick into the USB-C port and press record.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const m of S.sessions){
+    const w = new Date(m.startedAt);
+    const el = document.createElement('div');
+    el.className = 'take';
+    el.innerHTML =
+      '<div class="top"><span class="n">' + pad(m.n || 0, 2) + '</span>' +
+      '<span class="dur">' + hms(m.duration) + '</span>' +
+      '<span class="when">' + w.toLocaleDateString() + ' ' + pad(w.getHours(), 2) + ':' + pad(w.getMinutes(), 2) + '</span></div>' +
+      '<div class="meta"><b>' + m.events + '</b> events / ' +
+      (m.bpm ? '<b>' + m.bpm + '</b> bpm' : 'free tempo') +
+      (m.ports.length ? ' / ' + m.ports.join(', ') : '') +
+      (m.clipped ? ' / <b>clipped</b>' : '') + '</div>';
+    const acts = document.createElement('div');
+    acts.className = 'acts';
+    for (const [label, kind] of [['wav', 'wav'], ['midi', 'mid'], ['json', 'json']]){
+      const b = document.createElement('button');
+      b.className = 'key mini';
+      b.textContent = label;
+      b.onclick = () => handOff(m, kind);
+      acts.appendChild(b);
+    }
+    const del = document.createElement('button');
+    del.className = 'key mini del';
+    del.textContent = 'delete';
+    del.onclick = async () => {
+      if (!confirm('Delete take ' + pad(m.n || 0, 2) + '? This cannot be undone.')) return;
+      if (!m.mem && S.dir){
+        try { await S.dir.removeEntry(m.wav); } catch (e) {}
+        try { await S.dir.removeEntry(m.midi); } catch (e) {}
+      }
+      S.sessions = S.sessions.filter(x => x.id !== m.id);
+      await writeIndex(); renderTakes();
+    };
+    acts.appendChild(del);
+    el.appendChild(acts);
+    list.appendChild(el);
+  }
+}
+
+/* ===================== display loop ===================== */
+const dbOf = (p) => p > 0 ? 20 * Math.log10(p) : -100;
+const scaleOf = (db) => Math.max(0, Math.min(1, (db + 60) / 60));
+
+function paint(){
+  const age = performance.now() - S.boot;
+  dmClear();
+
+  if (age < 240){ dmFill(); dmRender(); return; }              // power-on lamp test
+  if (age < 460){                                              // wipe down
+    const cut = Math.floor((age - 240) / 220 * ROWS);
+    for (let y = cut; y < ROWS; y++) for (let x = 0; x < COLS; x++) dmPlot(x, y, 1);
+    dmRender(); return;
+  }
+
+  const blink = Math.floor(performance.now() / 500) % 2 === 0;
+  const state = S.recording ? 'REC' : (S.ctx ? 'RDY' : 'OFF');
+  if (!S.recording || blink) dmChar('#', 0, 0, 1, S.recording ? 2 : 1);
+  dmText(state, 8, 0, 1, 1);
+  if (S.clipped && blink) dmRight('CLIP', COLS, 0, 1, 2);
+  else if (S.sampleRate) dmRight((S.sampleRate / 1000).toFixed(1) + 'K ' + S.channels + 'CH', COLS, 0, 1, 1);
+  else dmRight('NO INPUT', COLS, 0, 1, 1);
+
+  const secs = S.sampleRate ? S.frames / S.sampleRate : 0;
+  // full hh:mm:ss at double scale spans the display edge to edge
+  dmText(hms(secs), 1, 8, 2, 1);
+
+  // meters, with a slow-falling peak hold tick
+  S.holdL = Math.max(S.holdL * 0.985, S.peakL);
+  S.holdR = Math.max(S.holdR * 0.985, S.peakR);
+  dmChar('L', 0, 23, 1, 1);
+  dmBar(8, COLS - 1, 25, 3, scaleOf(dbOf(S.peakL)), 0.86);
+  dmChar('R', 0, 31, 1, 1);
+  dmBar(8, COLS - 1, 33, 3, scaleOf(dbOf(S.peakR)), 0.86);
+  for (const [hold, y] of [[S.holdL, 25], [S.holdR, 33]]){
+    const x = 8 + Math.round(scaleOf(dbOf(hold)) * (COLS - 9));
+    for (let r = 0; r < 3; r++) dmPlot(Math.min(COLS - 1, x), y + r, 2);
+  }
+
+  const b = liveBPM();
+  dmText(b ? 'BPM' + b.toFixed(1) : 'BPM ---', 0, 39, 1, 1);
+  dmRight('EV' + (S.recording ? S.events.length : 0), COLS, 39, 1, 1);
+  dmText((S.lastEvt || 'NO MIDI IN').slice(0, 16), 0, 47, 1, 1);
+
+  S.peakL *= 0.72; S.peakR *= 0.72;
+  dmRender();
+}
+let lastPaint = 0;
+function frame(ts){
+  if (ts - lastPaint > 32){ lastPaint = ts; paint(); }
+  requestAnimationFrame(frame);
+}
+
+/* ===================== wiring ===================== */
+const setOff = (v) => {
+  S.offsetMs = Math.max(-500, Math.min(500, v));
+  $('#offVal').textContent = (S.offsetMs > 0 ? '+' : '') + S.offsetMs + ' ms';
+};
+$('#btnRec').onclick = () => onRecordKey().catch(e => msg(String(e.message || e)));
+$('#btnScan').onclick = () => scan().catch(e => msg(String(e.message || e)));
+$('#offDn').onclick = () => { setOff(S.offsetMs - 5); buzz(6); };
+$('#offUp').onclick = () => { setOff(S.offsetMs + 5); buzz(6); };
+window.addEventListener('resize', dmResize);
+window.addEventListener('beforeunload', (e) => { if (S.recording){ e.preventDefault(); e.returnValue = ''; } });
+dmResize();
+initStore();
+diag();
+requestAnimationFrame(frame);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
