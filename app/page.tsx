@@ -201,6 +201,7 @@ export default function Home() {
         peakR={session.recorder.peakR}
         clipped={session.recorder.clipped}
         liveBpm={session.midi.liveBpm}
+        midiSeen={session.midi.midiSeen}
         recordedEventCount={session.midi.recordedEventCount}
         lastEventText={session.midi.lastEventText}
       />
@@ -312,6 +313,9 @@ export default function Home() {
           {session.sessions.length ? `${session.sessions.length} stored` : 'none'}
         </span>
       </div>
+      {session.sessions.length > 0 && (
+        <p className="legend-text -mt-1 mb-2">json carries the mixer automation, not just wav</p>
+      )}
       <div>
         {session.sessions.length === 0 ? (
           <div className="empty-state">

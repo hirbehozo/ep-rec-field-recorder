@@ -1,4 +1,4 @@
-# K.O. Field Recorder: Claude Code build sequence
+# EP-REC field recorder: Claude Code build sequence
 
 Nine prompts that take you from an empty directory to a public Vercel URL you can send to
 anyone. Each one is self contained, ends in a commit, and states what "done" means so you
@@ -6,15 +6,17 @@ can check before moving on.
 
 ## Before you start
 
-Put the prototype somewhere Claude Code can read it. It is the reference implementation and
-the prompts refer to it constantly.
+Put the prototype and the hardware notes somewhere Claude Code can read them. The
+prototype is the reference implementation and the prompts refer to it constantly.
+reference/hardware.md carries the researched EP-136 and EP-133 findings, including the
+MIDI CC table, and prompts 2, 5 and 7 all depend on it.
 
 ```bash
 mkdir -p ~/code/ep-rec && cd ~/code/ep-rec
 mkdir reference
 cp ~/Downloads/ep-rec/index.html reference/prototype.html
 cp ~/Downloads/ep-rec/icon-*.png reference/
-cp ~/Downloads/koii-rec/README.md reference/prototype-notes.md
+cp ~/Downloads/ep-rec/HARDWARE.md reference/hardware.md
 claude
 ```
 
@@ -79,6 +81,15 @@ handling from the prototype's openAudio(): the three processing flags go off exp
 channelCount is ideal 2, and the AudioContext is constructed at the track's own sampleRate
 so nothing gets resampled.
 
+Add one more panel, a channel identity test, because the answer is documented nowhere.
+The Sidekick presents four stereo pairs over USB (channel 1, channel 2, aux, main output)
+and Android only ever hands the browser the first pair. Which pair that is decides whether
+we capture the finished mix or just whatever happens to be plugged into channel one. The
+panel shows independent L and R peak meters plus a plain instruction: plug a source into
+CH2 only, play it, and watch. Signal means the first pair is the main mix and we are fine.
+Silence means the first pair is CH1 and the rig has to be re-patched so that the source
+that matters lands on channel one. See reference/hardware.md.
+
 Add a Copy report button that puts the whole diagnostic dump on the clipboard as text.
 
 Commit as "feat: hardware diagnostics page".
@@ -90,6 +101,9 @@ USB-C and read a definitive answer.
 **Stop here and actually test it on the phone.** If the audio input list only ever shows
 the built in microphone, the browser route is dead on that handset and the remaining
 prompts are wasted effort. Everything else in the sequence assumes this step passed.
+
+Run the channel identity test at the same time and write the answer down. It does not
+change, and every later decision about patching the rig depends on it.
 
 ---
 
@@ -188,7 +202,8 @@ Commit as "feat: audio worklet capture engine".
 ## 5. MIDI capture engine
 
 ```
-Build lib/midi/useMidi.ts.
+Build lib/midi/useMidi.ts. Read reference/hardware.md first, it documents what these two
+devices actually send and the answer is not what you would assume.
 
 It owns the MIDIAccess object, tracks input ports reactively through onstatechange, and
 lets each port be armed or disarmed individually. Every incoming message is stamped with
@@ -199,15 +214,56 @@ Filtering rules from the prototype: drop active sensing (0xFE) entirely, route c
 when recording, and store everything else as { t, port, data } where t is milliseconds
 relative to the recording start instant.
 
-Also export describeMessage(data): string for the live event ticker, covering note on and
-off with note names, CC, program change, aftertouch, pitch bend and transport messages.
-Unit test it against a table of known messages.
+CLOCK COMES FROM THE K.O. II, NOT THE SIDEKICK
+
+There is no evidence the EP-136 transmits MIDI clock, and it is a USB device rather than
+a host, so nothing patched into it reaches the phone. Tempo only exists when the EP-133 is
+on the bus through a powered hub and has clock enabled in its system settings.
+
+So the BPM readout has three honest states, not two: a real value, "NO CLK" when MIDI is
+arriving but no 0xF8 has been seen, and "---" when no MIDI port is armed at all. Never
+show a fallback tempo as though it were measured. Takes recorded without clock are stored
+with bpm null and exported at 120 BPM with that fact recorded in the metadata.
+
+DECODING THE EP-136
+
+lib/midi/ep136.ts turns the Sidekick's raw CC stream into something readable and
+replayable. Mixer channels map to MIDI channels: CH1 is 1, CH2 is 2, AUX is 3.
+
+  CC1   FX force pad     continuous pressure 0-127
+  CC3   cue button       127 on, 0 off
+  CC7   channel fader    absolute
+  CC14  FX button        127 on, 0 off
+  CC20  gain encoder     relative, two's complement
+  CC22  EQ high          absolute, 64 flat
+  CC23  EQ mid           absolute, 64 flat
+  CC24  EQ low           absolute, 64 flat
+  pitch bend             MOD+ lever, 14-bit, 8192 centre
+
+CC20 needs decoding rather than reading: values 1 to 63 are positive increments, 64 and 0
+mean no change, and 65 to 127 decode as value minus 128. Accumulate and clamp to 0-127.
+Be explicit in the type that accumulated gain is a delta from an unknown starting point,
+because the encoder never reports where the knob actually was. Do not present it as an
+absolute value in the UI.
+
+Detect a Sidekick by port name and only apply this decoding to ports that match, since the
+same CC numbers mean nothing in particular coming from anything else.
+
+This table is community derived from monitoring a real unit, not vendor documentation, so
+treat it as a strong hypothesis. Structure the module so a single wrong CC number is a one
+line fix, and keep the raw bytes in the take's JSON regardless of how they were decoded.
+
+describeMessage(data, portKind) feeds the display ticker: note on and off with note names,
+CC, program change, aftertouch, pitch bend and transport for a generic port, and the
+decoded control names for a Sidekick, for example "CH1 FADER 98" or "CH2 EQ LOW -12".
+Sixteen characters is the display width, so keep the strings short. Unit test both paths
+against a table of known messages, including the relative encoder wrapping across zero.
 
 The recording start instant is a single performance.now() captured in the transport layer
 and shared by both engines. That shared origin is the entire sync mechanism, so make it
 an explicit parameter rather than something each hook reads independently.
 
-Commit as "feat: web midi capture with per port arming".
+Commit as "feat: web midi capture with ep-136 control decoding".
 ```
 
 ---
@@ -300,7 +356,8 @@ Row allocation:
    8-21   elapsed time, HH:MM:SS at double scale, x=1, which spans the full 96 columns
   23-29   L label and level bar, bar rows 25-27
   31-37   R label and level bar, bar rows 33-35
-  39-45   BPM from MIDI clock, right aligned event count
+  39-45   BPM from MIDI clock with its three states from prompt 5, right aligned event
+          count
   47-53   the last MIDI message, truncated to 16 characters
 
 Level bars run from column 8 to 95 with a permanent end-of-scale tick so the ceiling is
@@ -349,6 +406,9 @@ Build lib/export.ts and wire it to the session row actions.
 
 Three exports per take: the WAV straight from storage, an SMF built on demand from the
 stored events using the take's BPM and the current offset value, and the raw JSON payload.
+The JSON is where the Sidekick's mixer automation lives, decoded alongside the raw bytes,
+so it is the export that carries the performance rather than just the result. Say so in
+the UI, one short line, because it is not obvious that json is the interesting one.
 Building the MIDI on demand rather than at stop time means changing the offset lets me
 re-export an old take correctly, so make sure the UI reflects that.
 

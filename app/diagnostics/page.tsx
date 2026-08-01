@@ -691,7 +691,7 @@ export default function DiagnosticsPage() {
 
       <section>
         <h2 className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-500">
-          Peak meter
+          Peak meter &amp; channel identity
         </h2>
         <div className="flex flex-col gap-2">
           {(['L', 'R'] as const).map((ch) => (
@@ -716,6 +716,18 @@ export default function DiagnosticsPage() {
         <p className="mt-2 text-xs text-zinc-500">
           Play something into the input. Bars should move; a steady 0% means samples are not
           arriving.
+        </p>
+        <p className="mt-3 text-xs text-zinc-500">
+          <strong className="text-zinc-300">Channel identity test.</strong> The Sidekick presents
+          four stereo pairs over USB (channel 1, channel 2, aux, main output), and Android only ever
+          hands the browser the first pair &mdash; which one that is decides whether this app
+          captures the finished mix or just whatever is plugged into channel one, and it is
+          documented nowhere. Plug a source into Sidekick CH2 only, play it, and watch these same
+          bars. <strong className="text-zinc-300">Signal</strong> means the first pair is the main
+          mix and everything downstream is fine. <strong className="text-zinc-300">Silence</strong>{' '}
+          means the first pair is CH1, and the rig has to be re-patched so the source that matters
+          lands on channel one. This does not change between sessions on the same phone, so run it
+          once and write the answer down.
         </p>
       </section>
     </div>

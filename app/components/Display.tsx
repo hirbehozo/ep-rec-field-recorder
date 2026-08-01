@@ -13,6 +13,7 @@ export interface DisplayProps {
   peakR: number
   clipped: boolean
   liveBpm: number | null
+  midiSeen: boolean
   recordedEventCount: number
   lastEventText: string
 }
@@ -85,7 +86,16 @@ function paint(
     for (let r = 0; r < 3; r++) dm.plot(Math.min(DM_COLS - 1, x), y + r, 2)
   }
 
-  dm.text(live.liveBpm ? `BPM${live.liveBpm.toFixed(1)}` : 'BPM ---', 0, 39, 1, 1)
+  // Three honest states, never a fallback tempo presented as measured: a
+  // real value, "NO CLK" when MIDI is arriving but no 0xF8 has been seen
+  // (the normal state with only the Sidekick connected, since it does not
+  // transmit clock), and "---" when no MIDI has arrived at all.
+  const bpmText = live.liveBpm
+    ? `BPM${live.liveBpm.toFixed(1)}`
+    : live.midiSeen
+      ? 'BPM NO CLK'
+      : 'BPM ---'
+  dm.text(bpmText, 0, 39, 1, 1)
   dm.right(`EV${live.recording ? live.recordedEventCount : 0}`, DM_COLS, 39, 1, 1)
   dm.text((live.lastEventText || 'NO MIDI IN').slice(0, 16), 0, 47, 1, 1)
 

@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react'
 import { bpmFromClocks } from '../tempo'
 import type { MidiEvent } from '../types'
-import { describeMessage } from './describeMessage'
+import { describeMessage, type PortKind } from './describeMessage'
+import { looksLikeEp136 } from './ep136'
 
 export { describeMessage }
 
@@ -11,6 +12,7 @@ export interface MidiPortInfo {
   manufacturer: string
   state: MIDIPortDeviceState
   armed: boolean
+  kind: PortKind
 }
 
 export interface MidiState {
@@ -19,6 +21,7 @@ export interface MidiState {
   error: string | null
   ports: MidiPortInfo[]
   liveBpm: number | null
+  midiSeen: boolean
   lastEventText: string
   recordedEventCount: number
 }
@@ -47,6 +50,7 @@ function initialState(): MidiState {
     error: null,
     ports: [],
     liveBpm: null,
+    midiSeen: false,
     lastEventText: '',
     recordedEventCount: 0,
   }
@@ -56,37 +60,42 @@ export function useMidi() {
   const [state, setState] = useState<MidiState>(initialState)
   const accessRef = useRef<MIDIAccess | null>(null)
   const armedRef = useRef<Map<string, boolean>>(new Map())
+  const kindRef = useRef<Map<string, PortKind>>(new Map())
   const liveClocksRef = useRef<number[]>([])
   const recordingRef = useRef<RecordingBuffer | null>(null)
 
-  const handleMessage = useCallback((portId: string, portName: string, e: MIDIMessageEvent) => {
-    if (!armedRef.current.get(portId)) return
-    const data = e.data
-    if (!data || data.length === 0) return
-    if (data[0] === 0xfe) return // active sensing, drop entirely
+  const handleMessage = useCallback(
+    (portId: string, portName: string, portKind: PortKind, e: MIDIMessageEvent) => {
+      if (!armedRef.current.get(portId)) return
+      const data = e.data
+      if (!data || data.length === 0) return
+      if (data[0] === 0xfe) return // active sensing, drop entirely
 
-    const t = e.timeStamp || performance.now()
+      const t = e.timeStamp || performance.now()
 
-    if (data[0] === 0xf8) {
-      const clocks = liveClocksRef.current
-      clocks.push(t)
-      if (clocks.length > LIVE_CLOCK_WINDOW) clocks.shift()
-      const bpm = bpmFromClocks(clocks.slice(-LIVE_BPM_SAMPLES))
+      if (data[0] === 0xf8) {
+        const clocks = liveClocksRef.current
+        clocks.push(t)
+        if (clocks.length > LIVE_CLOCK_WINDOW) clocks.shift()
+        const bpm = bpmFromClocks(clocks.slice(-LIVE_BPM_SAMPLES))
+        const rec = recordingRef.current
+        if (rec) rec.clocks.push(t - rec.t0)
+        setState((s) => ({ ...s, liveBpm: bpm, midiSeen: true }))
+        return
+      }
+
+      const text = describeMessage(data, portKind)
       const rec = recordingRef.current
-      if (rec) rec.clocks.push(t - rec.t0)
-      setState((s) => ({ ...s, liveBpm: bpm }))
-      return
-    }
-
-    const text = describeMessage(data)
-    const rec = recordingRef.current
-    if (rec) rec.events.push({ t: t - rec.t0, p: portName, d: Array.from(data) })
-    setState((s) => ({
-      ...s,
-      lastEventText: text,
-      recordedEventCount: rec ? rec.events.length : s.recordedEventCount,
-    }))
-  }, [])
+      if (rec) rec.events.push({ t: t - rec.t0, p: portName, d: Array.from(data) })
+      setState((s) => ({
+        ...s,
+        lastEventText: text,
+        midiSeen: true,
+        recordedEventCount: rec ? rec.events.length : s.recordedEventCount,
+      }))
+    },
+    [],
+  )
 
   const syncPorts = useCallback(() => {
     const access = accessRef.current
@@ -96,8 +105,11 @@ export function useMidi() {
     access.inputs.forEach((p) => {
       seen.add(p.id)
       if (!armedRef.current.has(p.id)) {
+        const name = p.name || 'input'
+        const kind: PortKind = looksLikeEp136(name) ? 'ep136' : 'generic'
         armedRef.current.set(p.id, true)
-        p.onmidimessage = (e) => handleMessage(p.id, p.name || 'input', e)
+        kindRef.current.set(p.id, kind)
+        p.onmidimessage = (e) => handleMessage(p.id, name, kind, e)
       }
       ports.push({
         id: p.id,
@@ -105,9 +117,15 @@ export function useMidi() {
         manufacturer: p.manufacturer || 'unknown',
         state: p.state,
         armed: armedRef.current.get(p.id) ?? true,
+        kind: kindRef.current.get(p.id) ?? 'generic',
       })
     })
-    for (const id of [...armedRef.current.keys()]) if (!seen.has(id)) armedRef.current.delete(id)
+    for (const id of [...armedRef.current.keys()]) {
+      if (!seen.has(id)) {
+        armedRef.current.delete(id)
+        kindRef.current.delete(id)
+      }
+    }
     setState((s) => ({ ...s, ports }))
   }, [handleMessage])
 

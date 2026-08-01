@@ -27,4 +27,20 @@ describe('describeMessage', () => {
   it('accepts a Uint8Array the same as a plain array', () => {
     expect(describeMessage(new Uint8Array([0x90, 60, 100]))).toBe('1 C4 100')
   })
+
+  it('defaults to generic decoding when no portKind is given', () => {
+    expect(describeMessage([0xb0, 7, 98])).toBe('1 CC7 98')
+  })
+
+  it('uses EP-136 decoding for ep136 ports when the CC is in its table', () => {
+    expect(describeMessage([0xb0, 7, 98], 'ep136')).toBe('CH1 FADER 98')
+  })
+
+  it('falls back to generic decoding for ep136 ports on CCs outside the table', () => {
+    expect(describeMessage([0xb0, 99, 10], 'ep136')).toBe('1 CC99 10')
+  })
+
+  it('falls back to generic decoding for ep136 ports on note messages', () => {
+    expect(describeMessage([0x90, 60, 100], 'ep136')).toBe('1 C4 100')
+  })
 })

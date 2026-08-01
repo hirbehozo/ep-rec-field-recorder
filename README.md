@@ -1,31 +1,50 @@
 # EP-REC field recorder
 
 A client-side field recorder PWA for capturing synced audio and MIDI takes over USB from
-hardware like the K.O. Sidekick. Everything happens on-device: no server, no database, no
-account. Recordings never leave the phone unless you explicitly export or share them.
+the K.O. Sidekick (EP-136) and, optionally, the K.O. II (EP-133). Everything happens
+on-device: no server, no database, no account. Recordings never leave the phone unless you
+explicitly export or share them.
 
 Live: https://ep-rec-field-recorder.vercel.app
 
 Requires Chrome or Edge on Android. Firefox and iOS Safari have no Web MIDI, so they cannot
 see the hardware at all.
 
+See `reference/hardware.md` for the full researched writeup of what these two devices
+actually put on the wire — several of the obvious assumptions about the rig are wrong, and
+that document is the reason this app behaves the way it does in a few places (the BPM
+readout's three states, echo cancellation being left on, the EP-136 control decoding).
+
 ## The rig
 
+The one-cable version, audio only:
+
 ```
-┌────────────────────┐   USB-C    ┌───────────────────────────┐
-│  Android phone      │◄──────────►│  K.O. Sidekick, or any     │
-│  Chrome or Edge      │  audio +   │  class-compliant USB audio  │
-│  this app, installed │  MIDI      │  + MIDI interface           │
-│  as a PWA             │           │                             │
-└────────────────────┘            └───────────────────────────┘
+K.O. Sidekick  --USB-C-->  Android phone
 ```
 
-The phone is the only compute involved. The interface just needs to present itself as a
-standard USB audio class device and a standard USB MIDI class device at the same time,
-which is exactly what the Sidekick (and most small USB audio interfaces with a MIDI port)
-does.
+This gets you audio and the Sidekick's own mixer controls (fader rides, EQ, cue, FX) as
+MIDI CC, but no notes and no clock — the Sidekick is a USB device, not a host, so nothing
+patched into its 3.5mm inputs reaches the phone, and there is no evidence it transmits MIDI
+clock at all.
+
+The full version, with a powered USB-C hub:
+
+```
+K.O. II  --3.5mm-->  Sidekick CH1        audio
+K.O. II  --USB-C-->  powered hub          notes and clock
+Sidekick --USB-C-->  powered hub          audio and mixer CC
+powered hub --USB-C-->  Android phone
+```
+
+Web MIDI then lists two input ports. Enable clock out on the K.O. II in its system settings
+before trusting any tempo readout — the hub is also what stops the phone from bus-powering
+the Sidekick, which otherwise drains the phone across a long session.
 
 ## First run checklist
+
+Work through the **Signal** panel at the bottom of the screen — it exists to tell you
+exactly where the chain breaks.
 
 1. Open the live URL above in Chrome or Edge on the phone, with the interface already
    plugged into the USB-C port.
@@ -38,11 +57,32 @@ does.
 4. If the guess is wrong, or you plug in a different interface later, use **Scan** to
    re-detect hardware without starting a take, then pick the right input from the Audio
    Source list.
-5. If you only ever see the phone's built-in microphone in the input list, or the Signal
-   section at the bottom reports **audio in: not open**, the browser is not being handed a
-   USB audio device on this phone. Check `/diagnostics` for a lower-level read on exactly
-   what Chrome can see (MIDI ports, audio devices, resolved track settings, a live peak
-   meter) and what to do about each failure.
+5. **audio in** should read `2 ch / 48.0 kHz`-ish with a device label mentioning USB or the
+   Sidekick, not the phone microphone. If it only ever shows the built-in mic, or you're not
+   sure the right device is armed, check `/diagnostics` for a lower-level read (MIDI ports,
+   audio devices, resolved track settings, a live peak meter, and constraint presets for
+   re-diagnosing device routing on hardware where it might behave differently).
+6. **Channel identity.** The Sidekick presents four stereo pairs over USB and Android only
+   ever hands the browser the first one; which pair that is decides whether you're capturing
+   the finished mix or just whatever is plugged into channel one, and it's undocumented.
+   `/diagnostics` has a dedicated test for this: plug a source into Sidekick CH2 only and
+   watch whether the meters move. This doesn't change between sessions on the same phone —
+   run it once and remember the answer.
+
+Set levels with the Sidekick's own gain knobs until the meters sit comfortably below the
+top of the scale. The CLIP flag latches for the whole take once triggered.
+
+## Reading the display
+
+`BPM ---` means no MIDI has arrived at all. `BPM NO CLK` means MIDI is arriving but no clock
+has been seen — the normal state with only the Sidekick connected, since it doesn't
+transmit clock. A real number means the K.O. II is on the bus with clock enabled. Takes
+recorded without clock are stored with no BPM and export at 120 BPM with that noted.
+
+The bottom line is the last MIDI message. Generic messages decode as note names, CC
+numbers, etc.; a recognized Sidekick control decodes to a readable name like `CH1 FADER 98`
+or `AUX EQ MID -12`. That decoding is a strong hypothesis derived from monitoring a real
+unit, not vendor documentation, so the raw bytes are always kept in the export regardless.
 
 ## How the sync works, and why the offset control exists
 
@@ -58,23 +98,38 @@ starting point:
 
 In practice the USB stack still introduces a few milliseconds of jitter between the two
 paths — the audio interrupt latency and the MIDI message latency are not identical, and
-that gap can vary by device. The **Midi offset** control (&minus;5/+5 ms, up to &plusmn;500 ms)
-exists to correct for it after the fact: listen back, nudge until note hits line up with
-the transients in the waveform, and leave it there. The offset is not baked into a take at
-record time — the SMF file is rebuilt on demand from the raw stored MIDI events using
-whatever offset is currently set, so you can go back and re-tune an old take's export
-without re-recording anything.
+Android does not report USB input latency honestly, so the gap can't be measured, only
+calibrated per phone. The **Midi offset** control (&minus;5/+5 ms, up to &plusmn;500 ms)
+exists to correct for it after the fact: record a hard hit, import the WAV and MID into a
+DAW, measure the gap, and dial it in. The offset is not baked into a take at record time —
+the SMF file is rebuilt on demand from the raw stored MIDI events using whatever offset is
+currently set, so you can go back and re-tune an old take's export without re-recording
+anything.
+
+## Exports
+
+- **wav** &mdash; stereo 16-bit PCM at the interface's native sample rate
+- **midi** &mdash; standard MIDI file, format 1, one track per port, hanging notes closed
+- **json** &mdash; every byte of every message with millisecond offsets, plus clock
+  timestamps. This is the archival copy, and the one that carries the Sidekick's mixer
+  automation — fader rides, EQ sweeps, cue toggles, all timestamped next to the audio. That
+  performance data is the feature no other recorder on this rig gives you.
+- **all** &mdash; zips the three files together (a from-scratch, stored-only zip writer;
+  audio doesn't compress usefully so there's no point adding a dependency for it)
 
 ## Known limits
 
 - **Stereo only.** Android will not give a browser more than the default two-channel pair,
-  even if the interface itself exposes more inputs.
+  even if the interface itself exposes more inputs. Multitrack capture in a mobile browser
+  is not achievable on this platform, not just unimplemented here.
 - **Foreground only.** There is no background recording. Backgrounding the tab or letting
   the phone sleep mid-take will interrupt capture; a screen Wake Lock is held during a take
   specifically to make phone-sleep the less likely of those two failure modes, but the tab
   itself still has to stay in front.
 - **16-bit.** WAV output is always 16-bit PCM regardless of the source interface's native
   bit depth.
+- **No SysEx.** Web MIDI access is requested without the sysex flag, and no dump format is
+  documented for either device anyway.
 - **Echo cancellation stays on.** Confirmed on real hardware: explicitly disabling
   `echoCancellation` breaks Android's audio device routing outright &mdash; `getUserMedia`
   reports the requested USB device as open with matching settings while silently capturing
@@ -83,6 +138,10 @@ without re-recording anything.
   rather than forced off. For a direct line-in signal there is no acoustic echo to cancel in
   the first place, so in practice this costs nothing. See `/diagnostics` for the constraint
   presets used to isolate this, in case it needs re-diagnosing on different hardware.
+- **No MIDI clock from the Sidekick, and no state readback.** It detects BPM per channel
+  internally and displays it on its own screen, but nothing suggests it transmits that over
+  MIDI. MIDI from the Sidekick is a one-way controller stream — this app cannot ask which EQ
+  style is loaded or where the faders currently sit, only see things move.
 
 ## Sharing it
 

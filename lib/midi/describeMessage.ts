@@ -1,10 +1,19 @@
+import { describeEp136Message } from './ep136'
+
+export type PortKind = 'ep136' | 'generic'
+
 const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 function noteName(n: number): string {
   return NOTES[n % 12] + (Math.floor(n / 12) - 1)
 }
 
-export function describeMessage(data: ArrayLike<number>): string {
+export function describeMessage(data: ArrayLike<number>, portKind: PortKind = 'generic'): string {
+  if (portKind === 'ep136') {
+    const decoded = describeEp136Message(data)
+    if (decoded) return decoded
+  }
+
   const status = data[0] & 0xf0
   const channel = (data[0] & 0x0f) + 1
   if (status === 0x90 && data[2] > 0) return `${channel} ${noteName(data[1])} ${data[2]}`
