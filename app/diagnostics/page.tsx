@@ -24,7 +24,39 @@ interface TrackDiagnostics {
   echoCancellation: boolean
   noiseSuppression: boolean
   autoGainControl: boolean
+  presetLabel: string
 }
+
+// Android maps different getUserMedia constraint shapes to different
+// internal audio source types (VOICE_COMMUNICATION, UNPROCESSED, MIC, ...),
+// and the OS's automatic "prefer a connected USB/wired accessory over the
+// built-in mic" routing may only apply to some of them. These presets let
+// that be tested against the same device without a redeploy per hypothesis.
+const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraints }> = {
+  raw: {
+    label: 'raw (AEC/NS/AGC off, stereo ideal)',
+    constraints: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+    },
+  },
+  processed: {
+    label: 'processed (browser default AEC/NS/AGC, stereo ideal)',
+    constraints: { channelCount: { ideal: 2 } },
+  },
+  monoExact: {
+    label: 'raw, mono exact',
+    constraints: {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { exact: 1 },
+    },
+  },
+}
+const PRESET_KEYS = Object.keys(PRESETS)
 
 interface LogMessage {
   id: number
@@ -87,6 +119,7 @@ export default function DiagnosticsPage() {
   const [audioError, setAudioError] = useState('')
   const [trackDiag, setTrackDiag] = useState<TrackDiagnostics | null>(null)
 
+  const [preset, setPreset] = useState('raw')
   const [connecting, setConnecting] = useState(false)
   const [messages, setMessages] = useState<LogMessage[]>([])
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -172,15 +205,10 @@ export default function DiagnosticsPage() {
   }, [])
 
   const openAudioDevice = useCallback(
-    async (deviceId: string) => {
+    async (deviceId: string, presetKey: string) => {
       closeAudioGraph()
       clipRef.current = { l: false, r: false }
-      const constraints: MediaTrackConstraints = {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        channelCount: { ideal: 2 },
-      }
+      const constraints: MediaTrackConstraints = { ...PRESETS[presetKey].constraints }
       if (deviceId) constraints.deviceId = { exact: deviceId }
       let stream: MediaStream
       try {
@@ -240,8 +268,10 @@ export default function DiagnosticsPage() {
         echoCancellation: settings.echoCancellation ?? false,
         noiseSuppression: settings.noiseSuppression ?? false,
         autoGainControl: settings.autoGainControl ?? false,
+        presetLabel: PRESETS[presetKey].label,
       })
       setSelectedDeviceId(deviceId)
+      setPreset(presetKey)
       if (!HARDWARE_HINT.test(track.label)) {
         log(
           'That input looks like the phone microphone rather than the Sidekick. Pick the USB device from the list above.',
@@ -310,11 +340,11 @@ export default function DiagnosticsPage() {
         return
       }
       const guess = devices.find((d) => HARDWARE_HINT.test(d.label))
-      await openAudioDevice((guess ?? devices[0]).deviceId)
+      await openAudioDevice((guess ?? devices[0]).deviceId, preset)
     } finally {
       setConnecting(false)
     }
-  }, [log, openAudioDevice, refreshMidiPorts])
+  }, [log, openAudioDevice, refreshMidiPorts, preset])
 
   useEffect(() => {
     setSecureContext(window.isSecureContext ? 'pass' : 'fail')
@@ -381,6 +411,7 @@ export default function DiagnosticsPage() {
     lines.push('')
     if (trackDiag) {
       lines.push(`open device: ${trackDiag.deviceLabel}`)
+      lines.push(`  preset: ${trackDiag.presetLabel}`)
       lines.push(`  sampleRate: ${trackDiag.sampleRate}`)
       lines.push(`  channelCount: ${trackDiag.channelCount}`)
       lines.push(`  echoCancellation off: ${!trackDiag.echoCancellation}`)
@@ -425,7 +456,11 @@ export default function DiagnosticsPage() {
         <h1 className="text-xl font-bold tracking-tight">EP&ndash;REC hardware diagnostics</h1>
         <p className="mt-1 text-sm text-zinc-400">
           Does this phone actually expose a USB audio interface to Chrome? Press Connect and read
-          the answer below.
+          the answer below. Settings resolving correctly is not the same as audio actually arriving
+          from the right device &mdash; watch the peak meter with real sound, not just the numbers
+          above it. If it stays flat, try the constraint presets under Audio input devices: Android
+          routes different constraint shapes through different internal audio paths, and device
+          selection is not honored the same way on all of them.
         </p>
       </header>
 
@@ -544,7 +579,7 @@ export default function DiagnosticsPage() {
         {audioDevices.length > 0 && (
           <select
             value={selectedDeviceId}
-            onChange={(e) => openAudioDevice(e.target.value)}
+            onChange={(e) => openAudioDevice(e.target.value, preset)}
             className="mb-2 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
           >
             {audioDevices.map((d) => (
@@ -556,6 +591,29 @@ export default function DiagnosticsPage() {
         )}
         {audioDevices.length === 0 && (
           <p className="py-2 text-sm text-zinc-500">Press Connect to list devices.</p>
+        )}
+        {selectedDeviceId && (
+          <div className="mt-2">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              Constraint preset (re-opens the device above with each)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_KEYS.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => openAudioDevice(selectedDeviceId, key)}
+                  className={`rounded-md border px-3 py-2 text-xs font-semibold ${
+                    preset === key
+                      ? 'border-orange-600 bg-orange-950 text-orange-300'
+                      : 'border-zinc-700 bg-zinc-900 text-zinc-300'
+                  }`}
+                >
+                  {PRESETS[key].label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {audioDevices.map((d) => (
           <div
@@ -574,6 +632,7 @@ export default function DiagnosticsPage() {
         {trackDiag ? (
           <>
             <DiagLine label="device" status="pass" detail={trackDiag.deviceLabel} />
+            <DiagLine label="preset" status="pass" detail={trackDiag.presetLabel} />
             <DiagLine label="sample rate" status="pass" detail={`${trackDiag.sampleRate} Hz`} />
             <DiagLine label="channels" status="pass" detail={String(trackDiag.channelCount)} />
             <DiagLine
