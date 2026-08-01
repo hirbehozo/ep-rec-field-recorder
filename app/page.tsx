@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Display from './components/Display'
 import { looksLikeHardware } from '@/lib/audio/deviceHint'
+import { exportAllZip, exportJson, exportMidi, exportWav, shareOrDownload } from '@/lib/export'
 import { isPersistent } from '@/lib/store'
 import { useSession } from '@/lib/useSession'
 import type { SessionMeta } from '@/lib/types'
+
+type ExportKind = 'wav' | 'mid' | 'json' | 'zip'
 
 interface AudioDeviceInfo {
   deviceId: string
@@ -126,6 +129,30 @@ export default function Home() {
       await session.removeTake(meta)
     },
     [session],
+  )
+
+  const onExport = useCallback(
+    async (meta: SessionMeta, kind: ExportKind) => {
+      setPageError(null)
+      try {
+        // MIDI (and the zip that bundles it) is built on demand from the
+        // live offset, not the offset the take was recorded with, so
+        // nudging the offset and re-exporting an old take shifts it
+        // correctly.
+        const file =
+          kind === 'wav'
+            ? await exportWav(meta)
+            : kind === 'mid'
+              ? await exportMidi(meta, session.offsetMs)
+              : kind === 'json'
+                ? await exportJson(meta)
+                : await exportAllZip(meta, session.offsetMs)
+        await shareOrDownload(file)
+      } catch (e) {
+        setPageError(`Export failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [session.offsetMs],
   )
 
   const messages = useMemo(() => {
@@ -315,14 +342,17 @@ export default function Home() {
                   ) : null}
                 </div>
                 <div className="acts">
-                  <button type="button" className="key mini" disabled title="Coming soon">
+                  <button type="button" className="key mini" onClick={() => onExport(m, 'wav')}>
                     wav
                   </button>
-                  <button type="button" className="key mini" disabled title="Coming soon">
+                  <button type="button" className="key mini" onClick={() => onExport(m, 'mid')}>
                     midi
                   </button>
-                  <button type="button" className="key mini" disabled title="Coming soon">
+                  <button type="button" className="key mini" onClick={() => onExport(m, 'json')}>
                     json
+                  </button>
+                  <button type="button" className="key mini" onClick={() => onExport(m, 'zip')}>
+                    all
                   </button>
                   <button type="button" className="key mini del" onClick={() => onDeleteTake(m)}>
                     delete
