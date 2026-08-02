@@ -1,7 +1,11 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { DM_COLS, DM_ROWS, DotMatrix } from '@/lib/dotmatrix'
+
+export interface DisplayHandle {
+  resize: () => void
+}
 
 export interface DisplayProps {
   recording: boolean
@@ -110,7 +114,7 @@ function paint(
   dm.render()
 }
 
-export default function Display(props: DisplayProps) {
+const Display = forwardRef<DisplayHandle, DisplayProps>(function Display(props, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const dmRef = useRef<DotMatrix | null>(null)
   const liveRef = useRef(props)
@@ -121,6 +125,21 @@ export default function Display(props: DisplayProps) {
   liveRef.current = props
   meterRef.current.currentL = Math.max(meterRef.current.currentL, props.peakL)
   meterRef.current.currentR = Math.max(meterRef.current.currentR, props.peakR)
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      // The canvas reports zero width while its parent tab is hidden, so a
+      // tab switch back to Record has to force a resize once it's visible
+      // again rather than relying on the window resize listener.
+      resize: () => {
+        const canvas = canvasRef.current
+        const dm = dmRef.current
+        if (canvas && dm) dm.resize(canvas)
+      },
+    }),
+    [],
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -163,4 +182,6 @@ export default function Display(props: DisplayProps) {
       <canvas ref={canvasRef} aria-hidden="true" />
     </div>
   )
-}
+})
+
+export default Display

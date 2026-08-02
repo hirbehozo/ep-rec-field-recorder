@@ -1,4 +1,13 @@
-import { __resetForTests, getBlob, putFile, readIndex, removeSession, writeIndex } from './store'
+import {
+  __resetForTests,
+  getBlob,
+  putFile,
+  readIndex,
+  readLibrary,
+  removeSession,
+  writeIndex,
+  writeLibrary,
+} from './store'
 import type { SessionMeta } from './types'
 
 // jsdom has no navigator.storage.getDirectory, so every test here exercises
@@ -58,5 +67,15 @@ describe('store (in-memory fallback)', () => {
     await removeSession(meta)
     await expect(getBlob(meta.wav)).rejects.toThrow()
     await expect(getBlob(meta.midi)).rejects.toThrow()
+  })
+
+  it('readLibrary returns an empty map with no persistence backing it', async () => {
+    expect(await readLibrary()).toEqual({ pads: {}, binds: {} })
+  })
+
+  it('writeLibrary/readLibrary round-trip through memory', async () => {
+    const map = { pads: { A1: { name: 'kick', flag: true } }, binds: { '1:60': 'A1' } }
+    await writeLibrary(map)
+    expect(await readLibrary()).toEqual(map)
   })
 })

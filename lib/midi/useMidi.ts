@@ -56,6 +56,8 @@ function initialState(): MidiState {
   }
 }
 
+export type NoteOnHandler = (channel: number, note: number, portKind: PortKind) => void
+
 export function useMidi() {
   const [state, setState] = useState<MidiState>(initialState)
   const accessRef = useRef<MIDIAccess | null>(null)
@@ -63,6 +65,11 @@ export function useMidi() {
   const kindRef = useRef<Map<string, PortKind>>(new Map())
   const liveClocksRef = useRef<number[]>([])
   const recordingRef = useRef<RecordingBuffer | null>(null)
+  const noteHandlerRef = useRef<NoteOnHandler | null>(null)
+
+  const setNoteHandler = useCallback((handler: NoteOnHandler | null) => {
+    noteHandlerRef.current = handler
+  }, [])
 
   const handleMessage = useCallback(
     (portId: string, portName: string, portKind: PortKind, e: MIDIMessageEvent) => {
@@ -82,6 +89,10 @@ export function useMidi() {
         if (rec) rec.clocks.push(t - rec.t0)
         setState((s) => ({ ...s, liveBpm: bpm, midiSeen: true }))
         return
+      }
+
+      if ((data[0] & 0xf0) === 0x90 && data[2] > 0) {
+        noteHandlerRef.current?.((data[0] & 0x0f) + 1, data[1], portKind)
       }
 
       const text = describeMessage(data, portKind)
@@ -168,5 +179,5 @@ export function useMidi() {
     return rec ? { events: rec.events, clocks: rec.clocks } : { events: [], clocks: [] }
   }, [])
 
-  return { ...state, requestAccess, setArmed, startRecording, stopRecording }
+  return { ...state, requestAccess, setArmed, startRecording, stopRecording, setNoteHandler }
 }

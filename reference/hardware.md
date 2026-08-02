@@ -103,6 +103,48 @@ position pointer and start / continue / stop.
 Pads send notes on a per-pad MIDI channel set in sound edit, and a pad with its sample set
 to 000 sends MIDI without consuming a voice, which is how it drives external gear silently.
 
+## Reading the sample library
+
+The short version: it is possible, it is undocumented on purpose, and it is not where you
+should start.
+
+TE's own EP Sample Tool is a web app at teenage.engineering/apps/ep-sample-tool that talks
+to the device over MIDI SysEx. That alone proves a browser can do this, since Web MIDI with
+sysex enabled is the only transport it could be using.
+
+The protocol is deliberately closed. Wade Mealing asked TE directly in February 2024 for
+SysEx documentation to build his own tools, and was told they could not share any details,
+while being encouraged to keep exploring. Everything below is community reverse engineering.
+
+What is known:
+
+- **wmealing/KO2-SYSEX** documents the message framing: TE's manufacturer ID is 00 20 76,
+  there is a command set including GREET, ECHO, DFU and PRODUCT_SPECIFIC, status codes for
+  ok / error / command-not-found / bad-request, and payloads use a 7-bit packing scheme
+  where the high bits of each run of seven bytes are gathered into a leading byte.
+- **garrettjwilke/ep_133_sysex_thingy** has working .syx files that trigger sounds, delete
+  a sample from a slot, switch projects, and transfer a WAV into a slot. Samples on the
+  device carry a small JSON header with playmode, rootnote, pitch, pan, amplitude, envelope
+  and time mode, and transferred WAVs must be at the 46875 Hz native rate. That repo is
+  archived, and its delete commands are genuinely destructive.
+- **phones24/ep133-export-to-daw** is the serious one: an actively maintained PWA that
+  reads whole projects and samples off the device over Web MIDI, and can also work offline
+  from .pak and .ppak backup files. It is AGPL-3.0.
+
+That licence matters. Lifting its SysEx implementation into EP-REC would require releasing
+EP-REC under AGPL as well, since the app is served over a network. The protocol facts are
+not copyrightable and can be reimplemented, but the code cannot simply be copied in.
+
+Three further reasons not to make live enumeration the first move: firmware 2.5 landed in
+June 2026 and changed the USB stack, so anything reverse engineered before that needs
+re-verifying; the same command surface that reads samples can also erase them; and the
+device is busy being played during the exact sessions where the library view is wanted.
+
+The conclusion for this app is that the pad map should be built by playing rather than
+read from the device. A pad hit is already a MIDI note we receive, so binding notes to pad
+names costs nothing, sends nothing, and cannot damage anything. Reading the real library
+stays available as a later addition once there is a reason to take the risk.
+
 ## What is not available
 
 - **No clock from the Sidekick.** It detects BPM per channel internally and displays it,
@@ -126,3 +168,6 @@ you, and it is the reason the raw JSON export matters more than it looks.
 - Android Open Source Project, USB digital audio
 - Chromium issue 40403559, multichannel input via getUserMedia
 - Community MIDI CC spec for the EP-136, gist by GOROman, May 2026
+- wmealing/KO2-SYSEX, protocol notes and TE's reply declining to document it
+- garrettjwilke/ep_133_sysex_thingy, working SysEx captures and sample header format
+- phones24/ep133-export-to-daw, AGPL-3.0 Web MIDI implementation

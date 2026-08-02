@@ -58,6 +58,49 @@ body{
 }
 .screen canvas{display:block;width:100%;image-rendering:pixelated}
 
+/* tabs */
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:12px;
+  border:1px solid var(--ink);border-radius:3px;overflow:hidden;
+  box-shadow:0 3px 0 var(--edge),0 3px 0 1px var(--ink)}
+.tabs button{font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.19em;
+  text-transform:uppercase;padding:11px 8px 10px;border:none;cursor:pointer;
+  background:linear-gradient(180deg,var(--face-hi) 0%,var(--face) 60%,#D2CFC8 100%);color:var(--legend)}
+.tabs button + button{border-left:1px solid var(--ink)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--face-hi)}
+
+/* library */
+.search{width:100%;font-family:var(--sans);font-size:13px;font-weight:600;padding:11px 10px;
+  background:var(--lcd);border:1px solid var(--ink);border-radius:3px;color:var(--lcd-ink);
+  box-shadow:inset 0 2px 4px rgba(20,28,14,.3);letter-spacing:.04em}
+.search::placeholder{color:rgba(20,28,14,.45);text-transform:uppercase;letter-spacing:.14em;font-size:11px}
+.groups{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:9px}
+.padgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.pad{
+  position:relative;aspect-ratio:1/.72;border:1px solid var(--ink);border-radius:3px;
+  background:linear-gradient(180deg,var(--face-hi) 0%,var(--face) 55%,#D2CFC8 100%);
+  box-shadow:0 3px 0 var(--edge),0 3px 0 1px var(--ink);cursor:pointer;
+  display:flex;flex-direction:column;justify-content:space-between;padding:5px 6px;overflow:hidden;
+  transition:transform .05s linear,box-shadow .05s linear;
+}
+.pad:active{transform:translateY(3px);box-shadow:0 0 0 1px var(--ink)}
+.pad .num{font-size:9px;font-weight:800;letter-spacing:.1em;color:var(--legend)}
+.pad .nm{font-size:11px;font-weight:700;letter-spacing:-.01em;line-height:1.1;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.pad.empty .nm{color:var(--edge);font-weight:600}
+.pad.flagged{background:linear-gradient(180deg,#FFD9C4 0%,#FFC6A6 60%,#F0B08C 100%)}
+.pad.flagged .num{color:#8A3B10}
+.pad.sel{outline:2px solid var(--signal);outline-offset:2px}
+.pad.hit{background:linear-gradient(180deg,#FF8A44 0%,var(--signal) 100%);color:#fff}
+.pad.hit .num{color:rgba(255,255,255,.8)}
+.editor{border:1px solid var(--ink);background:var(--face-hi);border-radius:3px;padding:10px;margin-top:10px}
+.editor input{width:100%;font-family:var(--sans);font-size:14px;font-weight:700;padding:9px;
+  border:1px solid var(--ink);border-radius:3px;background:var(--face);color:var(--ink);margin-bottom:9px}
+.editor .row2{display:flex;gap:6px;flex-wrap:wrap}
+.hit-list{border-top:1px solid var(--rule);padding:8px 0;display:flex;align-items:center;gap:9px;cursor:pointer}
+.hit-list .loc{font-size:10px;font-weight:800;color:var(--face-hi);background:var(--ink);padding:3px 6px;letter-spacing:.08em}
+.hit-list .nm{font-size:13px;font-weight:700}
+.hit-list .fl{margin-left:auto;font-size:9px;font-weight:700;letter-spacing:.14em;color:var(--signal)}
+
 /* keys */
 .key{
   font-family:var(--sans);font-size:11px;font-weight:700;letter-spacing:.15em;
@@ -147,6 +190,12 @@ select{
     <span class="rev">01</span>
   </div>
 
+  <div class="tabs">
+    <button id="tabRec" aria-selected="true">Record</button>
+    <button id="tabLib" aria-selected="false">Library</button>
+  </div>
+
+  <div id="viewRec">
   <div class="screen"><canvas id="lcd"></canvas></div>
 
   <div class="transport">
@@ -194,6 +243,28 @@ select{
 
   <div class="hdr"><span class="tag">Signal</span><span class="rule"></span></div>
   <div class="diag" id="diag"></div>
+  </div>
+
+  <div id="viewLib" hidden>
+    <div class="hdr"><span class="tag">Find</span><span class="rule"></span><span class="val" id="libCount">0 named</span></div>
+    <input class="search" id="libSearch" placeholder="search samples" autocomplete="off" spellcheck="false">
+    <div id="libResults"></div>
+
+    <div class="hdr"><span class="tag">Pads</span><span class="rule"></span><span class="val" id="libHint">tap a pad to name it</span></div>
+    <div class="groups" id="groupSel"></div>
+    <div class="padgrid" id="padGrid"></div>
+    <div id="padEditor"></div>
+
+    <div class="hdr"><span class="tag">Map</span><span class="rule"></span></div>
+    <div class="acts" style="padding-top:2px">
+      <button class="key mini" id="libExport">export map</button>
+      <button class="key mini" id="libImportBtn">import map</button>
+      <button class="key mini del" id="libWipe">clear all</button>
+      <input type="file" id="libImport" accept="application/json,.json" hidden>
+    </div>
+    <div class="empty" style="padding-top:10px">Names and flags live only in this app. Nothing is
+    ever written back to the K.O. II, so there is no way for this to damage what is on the device.</div>
+  </div>
 
 </div>
 
@@ -552,6 +623,7 @@ function attach(port){
       return;
     }
     S.lastEvt = describe(d, rec.kind);
+    if ((d[0] & 0xF0) === 0x90 && d[2] > 0 && rec.kind !== 'ep136') libOnNote((d[0] & 0x0F) + 1, d[1]);
     if (S.recording) S.events.push({ t: t - S.t0, p: rec.name, d: Array.from(d) });
   };
 }
@@ -949,6 +1021,168 @@ function renderTakes(){
   }
 }
 
+/* ===================== sample library =====================
+   The EP-133 will not tell us what is in it over standard MIDI, and the SysEx protocol
+   that TE's own sample tool uses is undocumented by them on purpose. So this map is built
+   by playing: hit a pad, name it, and it is remembered. Nothing is ever sent to the
+   device, which is what makes it safe. See HARDWARE.md for the read-the-device options. */
+const GROUPS = ['A', 'B', 'C', 'D'];
+const LIB = { pads: {}, binds: {}, group: 'A', sel: null, learn: false, hits: {} };
+
+async function loadLib(){
+  if (!S.dir) return renderLib();
+  try {
+    const fh = await S.dir.getFileHandle('library.json');
+    const d = JSON.parse(await (await fh.getFile()).text());
+    LIB.pads = d.pads || {}; LIB.binds = d.binds || {};
+  } catch (e) {}
+  renderLib();
+}
+async function saveLib(){
+  if (!S.dir) return;
+  const fh = await S.dir.getFileHandle('library.json', { create: true });
+  const w = await fh.createWritable();
+  await w.write(new Blob([JSON.stringify({ pads: LIB.pads, binds: LIB.binds })], { type: 'application/json' }));
+  await w.close();
+}
+const padKey = (g, n) => g + n;
+const bindKey = (ch, note) => ch + ':' + note;
+
+// A pad hit arrives as a note. If we know the pad it belongs to, light it up.
+function libOnNote(ch, note){
+  const k = bindKey(ch, note);
+  if (LIB.learn && LIB.sel){
+    // rebind: a pad can only own one note, and a note only one pad
+    for (const b of Object.keys(LIB.binds)) if (LIB.binds[b] === LIB.sel) delete LIB.binds[b];
+    LIB.binds[k] = LIB.sel;
+    LIB.learn = false;
+    saveLib(); renderLib();
+    return;
+  }
+  const pad = LIB.binds[k];
+  if (!pad) return;
+  LIB.hits[pad] = performance.now();
+  if (pad[0] !== LIB.group && !$('#viewLib').hidden) { LIB.group = pad[0]; renderLib(); }
+  const el = document.querySelector('[data-pad="' + pad + '"]');
+  if (el){
+    el.classList.add('hit');
+    setTimeout(() => el.classList.remove('hit'), 260);
+  }
+}
+
+function renderLib(){
+  const named = Object.values(LIB.pads).filter(p => p && p.name).length;
+  const flagged = Object.values(LIB.pads).filter(p => p && p.flag).length;
+  $('#libCount').textContent = named + ' named' + (flagged ? ' / ' + flagged + ' flagged' : '');
+
+  const gs = $('#groupSel');
+  gs.innerHTML = '';
+  for (const g of GROUPS){
+    const b = document.createElement('button');
+    b.className = 'key mini';
+    b.textContent = 'group ' + g;
+    b.style.background = g === LIB.group ? 'var(--ink)' : '';
+    b.style.color = g === LIB.group ? 'var(--face-hi)' : '';
+    b.onclick = () => { LIB.group = g; LIB.sel = null; LIB.learn = false; renderLib(); buzz(8); };
+    gs.appendChild(b);
+  }
+
+  // the K.O. II keypad counts from the bottom left, so render it that way
+  const grid = $('#padGrid');
+  grid.innerHTML = '';
+  for (const row of [[10, 11, 12], [7, 8, 9], [4, 5, 6], [1, 2, 3]]){
+    for (const n of row){
+      const key = padKey(LIB.group, n);
+      const p = LIB.pads[key] || {};
+      const el = document.createElement('div');
+      el.className = 'pad' + (p.name ? '' : ' empty') + (p.flag ? ' flagged' : '') + (LIB.sel === key ? ' sel' : '');
+      el.dataset.pad = key;
+      el.innerHTML = '<span class="num">' + LIB.group + n + '</span><span class="nm">' +
+        (p.name ? p.name.replace(/[<>&]/g, '') : 'empty') + '</span>';
+      el.onclick = () => { LIB.sel = LIB.sel === key ? null : key; LIB.learn = false; renderLib(); buzz(8); };
+      grid.appendChild(el);
+    }
+  }
+
+  $('#libHint').textContent = LIB.learn ? 'hit the pad on the device'
+    : LIB.sel ? 'editing ' + LIB.sel : 'tap a pad to name it';
+  renderEditor();
+  renderSearch();
+}
+
+function renderEditor(){
+  const box = $('#padEditor');
+  if (!LIB.sel){ box.innerHTML = ''; return; }
+  const key = LIB.sel;
+  const p = LIB.pads[key] || {};
+  const bound = Object.keys(LIB.binds).find(b => LIB.binds[b] === key);
+  box.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'editor';
+  el.innerHTML = '<input id="padName" placeholder="name this sample" maxlength="28">';
+  const row = document.createElement('div');
+  row.className = 'row2';
+  const mk = (label, fn, cls) => {
+    const b = document.createElement('button');
+    b.className = 'key mini' + (cls ? ' ' + cls : '');
+    b.textContent = label; b.onclick = fn;
+    row.appendChild(b);
+    return b;
+  };
+  mk('save', async () => {
+    const v = $('#padName').value.trim();
+    LIB.pads[key] = { name: v, flag: !!(LIB.pads[key] || {}).flag };
+    if (!v && !LIB.pads[key].flag) delete LIB.pads[key];
+    LIB.sel = null;
+    await saveLib(); renderLib(); buzz(12);
+  });
+  mk(p.flag ? 'unflag' : 'flag', async () => {
+    LIB.pads[key] = { name: ($('#padName').value.trim() || p.name || ''), flag: !p.flag };
+    await saveLib(); renderLib(); buzz(12);
+  });
+  mk(LIB.learn ? 'listening' : (bound ? 'rebind' : 'bind pad'), () => {
+    LIB.learn = !LIB.learn; renderLib(); buzz(8);
+  });
+  mk('clear', async () => {
+    delete LIB.pads[key];
+    for (const b of Object.keys(LIB.binds)) if (LIB.binds[b] === key) delete LIB.binds[b];
+    LIB.sel = null;
+    await saveLib(); renderLib();
+  }, 'del');
+  el.appendChild(row);
+  const note = document.createElement('div');
+  note.className = 'empty';
+  note.style.padding = '8px 0 0';
+  note.textContent = bound ? 'bound to midi ' + bound.replace(':', ' note ')
+    : 'not bound yet. press bind pad, then hit the pad on the K.O. II.';
+  el.appendChild(note);
+  box.appendChild(el);
+  $('#padName').value = p.name || '';
+}
+
+function renderSearch(){
+  const q = ($('#libSearch').value || '').trim().toLowerCase();
+  const box = $('#libResults');
+  box.innerHTML = '';
+  let rows = Object.entries(LIB.pads).filter(([, p]) => p && (p.name || p.flag));
+  if (q) rows = rows.filter(([k, p]) => (p.name || '').toLowerCase().includes(q) || k.toLowerCase().includes(q));
+  else rows = rows.filter(([, p]) => p.flag);
+  rows.sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '') || a[0].localeCompare(b[0]));
+  if (!rows.length){
+    box.innerHTML = '<div class="empty">' + (q ? 'Nothing matches that.'
+      : 'Flagged samples show here. Search to find anything by name.') + '</div>';
+    return;
+  }
+  for (const [key, p] of rows.slice(0, 40)){
+    const el = document.createElement('div');
+    el.className = 'hit-list';
+    el.innerHTML = '<span class="loc">' + key + '</span><span class="nm">' +
+      (p.name || 'unnamed').replace(/[<>&]/g, '') + '</span>' + (p.flag ? '<span class="fl">flagged</span>' : '');
+    el.onclick = () => { LIB.group = key[0]; LIB.sel = key; renderLib(); };
+    box.appendChild(el);
+  }
+}
+
 /* ===================== display loop ===================== */
 const dbOf = (p) => p > 0 ? 20 * Math.log10(p) : -100;
 const scaleOf = (db) => Math.max(0, Math.min(1, (db + 60) / 60));
@@ -1014,10 +1248,45 @@ $('#btnRec').onclick = () => onRecordKey().catch(e => msg(String(e.message || e)
 $('#btnScan').onclick = () => scan().catch(e => msg(String(e.message || e)));
 $('#offDn').onclick = () => { setOff(S.offsetMs - 5); buzz(6); };
 $('#offUp').onclick = () => { setOff(S.offsetMs + 5); buzz(6); };
+function showTab(which){
+  const rec = which === 'rec';
+  $('#viewRec').hidden = !rec;
+  $('#viewLib').hidden = rec;
+  $('#tabRec').setAttribute('aria-selected', String(rec));
+  $('#tabLib').setAttribute('aria-selected', String(!rec));
+  if (rec) dmResize();          // the canvas has no width while hidden
+  buzz(8);
+}
+$('#tabRec').onclick = () => showTab('rec');
+$('#tabLib').onclick = () => showTab('lib');
+$('#libSearch').oninput = renderSearch;
+$('#libExport').onclick = () => {
+  const f = new File([JSON.stringify({ pads: LIB.pads, binds: LIB.binds }, null, 1)],
+    'ep-rec-library.json', { type: 'application/json' });
+  deliver(f).catch(() => {});
+};
+$('#libImportBtn').onclick = () => $('#libImport').click();
+$('#libImport').onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!d.pads) throw new Error('that file has no pad map in it');
+    LIB.pads = d.pads; LIB.binds = d.binds || {};
+    await saveLib(); renderLib();
+    msg('Library map imported.', true);
+  } catch (err) { msg('Import failed: ' + (err.message || err)); }
+  e.target.value = '';
+};
+$('#libWipe').onclick = async () => {
+  if (!confirm('Clear every name, flag and binding? This cannot be undone.')) return;
+  LIB.pads = {}; LIB.binds = {}; LIB.sel = null;
+  await saveLib(); renderLib();
+};
 window.addEventListener('resize', dmResize);
 window.addEventListener('beforeunload', (e) => { if (S.recording){ e.preventDefault(); e.returnValue = ''; } });
 dmResize();
-initStore();
+initStore().then(loadLib);
 diag();
 requestAnimationFrame(frame);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -178,6 +178,30 @@ parses back to the right MPEG frame count and duration through a from-scratch fr
   MIDI. MIDI from the Sidekick is a one-way controller stream — this app cannot ask which EQ
   style is loaded or where the faders currently sit, only see things move.
 
+## The library tab
+
+The Sidekick's sample slots have no readable names over USB or MIDI — TE never documented
+the SysEx needed to ask the device what's loaded, the one working reverse-engineered
+implementation is AGPL and can't be borrowed into this code, and the same command surface
+can erase samples. So the Library tab builds a map by playing instead: select a pad, press
+**bind pad**, hit the pad on the device, and the incoming note binds it. A pad owns exactly
+one note and a note maps to exactly one pad, so rebinding a note evicts its old pad.
+
+The pad grid mirrors the K.O. II keypad layout exactly — three across, four down, counting
+from the bottom left, so the top row on screen is pads 10/11/12 and the bottom row is
+1/2/3 — across four groups (A&ndash;D). An incoming bound note flashes its pad and, if
+the tab is open, jumps the grid to that pad's group, so glancing at the phone shows what
+just fired and what it's called. Search finds a pad by name or location; with an empty
+query it shows the flagged shortlist instead, which is what makes flagging worth doing.
+
+Names, flags and bindings live only in this app's OPFS storage (`library.json`) and are
+never transmitted to the K.O. II — there's no write path back to the device, intentionally,
+since a tool that edits sample names next to a device that stores sample names invites the
+wrong assumption. Export and import the map as JSON through the same share path as take
+exports; the map is the product of many sessions of naming things, so it's worth backing up
+separately from any one take. See `reference/hardware.md`, section "Reading the sample
+library", for the full reasoning behind playing instead of reading the device.
+
 ## Sharing it
 
 The deployed app is static and entirely client-side, so there is nothing to provision and

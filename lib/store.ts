@@ -1,9 +1,12 @@
+import { emptyLibrary, isValidLibraryMap, type LibraryMap } from './library'
 import type { SessionMeta } from './types'
 
 const DIR_NAME = 'koii-rec'
+const LIBRARY_FILE = 'library.json'
 
 let dirHandle: FileSystemDirectoryHandle | null | undefined
 const memFiles = new Map<string, Blob>()
+let memLibrary: LibraryMap | null = null
 
 async function getDir(): Promise<FileSystemDirectoryHandle | null> {
   if (dirHandle !== undefined) return dirHandle
@@ -39,6 +42,37 @@ export async function writeIndex(sessions: SessionMeta[]): Promise<void> {
   const fh = await dir.getFileHandle('index.json', { create: true })
   const w = await fh.createWritable()
   await w.write(new Blob([JSON.stringify(sessions)], { type: 'application/json' }))
+  await w.close()
+}
+
+/**
+ * The pad map is the product of many sessions of naming things — losing it
+ * to a cleared browser storage would be worse than losing a take — so it's
+ * kept in its own file rather than folded into a take's payload.
+ */
+export async function readLibrary(): Promise<LibraryMap> {
+  const dir = await getDir()
+  if (!dir) return memLibrary ?? emptyLibrary()
+  try {
+    const fh = await dir.getFileHandle(LIBRARY_FILE)
+    const parsed: unknown = JSON.parse(await (await fh.getFile()).text())
+    return isValidLibraryMap(parsed)
+      ? { pads: parsed.pads, binds: parsed.binds || {} }
+      : emptyLibrary()
+  } catch {
+    return emptyLibrary()
+  }
+}
+
+export async function writeLibrary(map: LibraryMap): Promise<void> {
+  const dir = await getDir()
+  if (!dir) {
+    memLibrary = map
+    return
+  }
+  const fh = await dir.getFileHandle(LIBRARY_FILE, { create: true })
+  const w = await fh.createWritable()
+  await w.write(new Blob([JSON.stringify(map)], { type: 'application/json' }))
   await w.close()
 }
 
@@ -93,4 +127,5 @@ export async function removeSession(meta: SessionMeta): Promise<void> {
 export function __resetForTests(): void {
   dirHandle = undefined
   memFiles.clear()
+  memLibrary = null
 }

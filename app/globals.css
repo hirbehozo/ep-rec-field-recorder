@@ -392,6 +392,191 @@
     color: var(--color-ink);
     border-color: var(--color-rule);
   }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    margin-bottom: 12px;
+    border: 1px solid var(--color-ink);
+    border-radius: 3px;
+    overflow: hidden;
+    box-shadow:
+      0 3px 0 var(--color-edge),
+      0 3px 0 1px var(--color-ink);
+  }
+  .tabs button {
+    font-family: var(--font-panel);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.19em;
+    text-transform: uppercase;
+    padding: 11px 8px 10px;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(
+      180deg,
+      var(--color-face-hi) 0%,
+      var(--color-face) 60%,
+      #d2cfc8 100%
+    );
+    color: var(--color-legend);
+  }
+  .tabs button + button {
+    border-left: 1px solid var(--color-ink);
+  }
+  .tabs button[aria-selected='true'] {
+    background: var(--color-ink);
+    color: var(--color-face-hi);
+  }
+
+  .search {
+    width: 100%;
+    font-family: var(--font-panel);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 11px 10px;
+    background: var(--color-lcd);
+    border: 1px solid var(--color-ink);
+    border-radius: 3px;
+    color: var(--color-lcd-ink);
+    box-shadow: inset 0 2px 4px rgba(20, 28, 14, 0.3);
+    letter-spacing: 0.04em;
+  }
+  .search::placeholder {
+    color: rgba(20, 28, 14, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 11px;
+  }
+  .groups {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 7px;
+    margin-bottom: 9px;
+  }
+  .padgrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
+  }
+  .pad {
+    position: relative;
+    aspect-ratio: 1 / 0.72;
+    border: 1px solid var(--color-ink);
+    border-radius: 3px;
+    background: linear-gradient(
+      180deg,
+      var(--color-face-hi) 0%,
+      var(--color-face) 55%,
+      #d2cfc8 100%
+    );
+    box-shadow:
+      0 3px 0 var(--color-edge),
+      0 3px 0 1px var(--color-ink);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 5px 6px;
+    overflow: hidden;
+    transition:
+      transform 0.05s linear,
+      box-shadow 0.05s linear;
+  }
+  .pad:active {
+    transform: translateY(3px);
+    box-shadow: 0 0 0 1px var(--color-ink);
+  }
+  .pad .num {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--color-legend);
+  }
+  .pad .nm {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.1;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+  .pad.empty .nm {
+    color: var(--color-edge);
+    font-weight: 600;
+  }
+  .pad.flagged {
+    background: linear-gradient(180deg, #ffd9c4 0%, #ffc6a6 60%, #f0b08c 100%);
+  }
+  .pad.flagged .num {
+    color: #8a3b10;
+  }
+  .pad.sel {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  .pad.hit {
+    background: linear-gradient(180deg, #ff8a44 0%, var(--color-signal) 100%);
+    color: #fff;
+  }
+  .pad.hit .num {
+    color: rgba(255, 255, 255, 0.8);
+  }
+  .editor {
+    border: 1px solid var(--color-ink);
+    background: var(--color-face-hi);
+    border-radius: 3px;
+    padding: 10px;
+    margin-top: 10px;
+  }
+  .editor input {
+    width: 100%;
+    font-family: var(--font-panel);
+    font-size: 14px;
+    font-weight: 700;
+    padding: 9px;
+    border: 1px solid var(--color-ink);
+    border-radius: 3px;
+    background: var(--color-face);
+    color: var(--color-ink);
+    margin-bottom: 9px;
+  }
+  .editor .row2 {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .hit-list {
+    border-top: 1px solid var(--color-rule);
+    padding: 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+  }
+  .hit-list .loc {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--color-face-hi);
+    background: var(--color-ink);
+    padding: 3px 6px;
+    letter-spacing: 0.08em;
+  }
+  .hit-list .nm {
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .hit-list .fl {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--color-signal);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

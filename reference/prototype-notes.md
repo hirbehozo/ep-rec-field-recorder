@@ -515,6 +515,74 @@ Print the production URL when you are done.
 
 ---
 
+## 10. The library tab
+
+Read reference/hardware.md, section "Reading the sample library", before starting. The
+short version is that the device will not tell us what is loaded without reverse
+engineered SysEx that TE declined to document, that the one good open implementation is
+AGPL and cannot be copied into this app, and that the same command surface can erase
+samples. So the map gets built by playing instead.
+
+```
+Add a second tab to the app. The chrome is two keys at the top, RECORD and LIBRARY, styled
+as a single segmented control with the selected side knocked out in ink. Switching back to
+RECORD must call the display resize, because a canvas inside a hidden element reports zero
+width and will render blank otherwise.
+
+The library tab answers one question: while I am playing, where do I find a given sample?
+
+DATA MODEL, in lib/library.ts, persisted to OPFS as library.json
+
+  pads:  { "A1": { name, flag }, ... }   four groups A to D, twelve pads each
+  binds: { "10:42": "A1" }               midi channel and note to pad
+
+Nothing is ever transmitted to the K.O. II. Say so in the UI, because a tool that edits
+sample names next to a device that stores sample names invites exactly the wrong assumption.
+
+PAD GRID
+
+Twelve pads per group, rendered three across and four down, counting from the bottom left
+so that row one is 10 11 12 and the last row is 1 2 3. That is how the K.O. II keypad is
+laid out and how its auto-chop fills pads, and getting it upside down would make the whole
+feature useless. Pads are physical keys like the rest of the panel. Empty pads read empty
+in the edge colour, named pads show the name over two lines, flagged pads take a pale
+orange face, the selected pad gets a signal outline.
+
+BINDING BY PLAYING
+
+Select a pad, press bind, hit the pad on the device, done. The incoming note on message
+binds and the mode disarms itself. Rebinding must remove any previous note pointing at
+that pad, so a pad owns exactly one note and a note maps to exactly one pad. Ignore note
+messages from a Sidekick port here, they are not pad hits.
+
+LIVE HIGHLIGHT
+
+An incoming bound note flashes its pad orange for about 260ms, and if the hit belongs to
+another group the grid follows it there. This is the feature: glance at the phone, see
+which pad just fired and what it is called.
+
+SEARCH AND FLAGS
+
+A search field at the top, styled as an LCD window rather than a form input. Empty search
+shows flagged samples only, which makes flagging a shortlist rather than decoration. Typing
+filters by name or by pad location. Each result row shows the location as a knocked-out tag,
+the name, and its flag state, and tapping one jumps the grid to that pad.
+
+MAP PORTABILITY
+
+Export and import the map as JSON through the same share path as the take exports, plus a
+clear-all behind a confirm. The map is the product of many sessions of naming things, so
+losing it to a cleared browser storage would be worse than losing a take.
+
+Commit as "feat: sample library tab with play-to-bind pad mapping".
+```
+
+If the map ever needs to come from the device rather than from playing, that is a separate
+piece of work with its own risk assessment, and it should reimplement the protocol from the
+documented facts rather than borrowing AGPL code.
+
+---
+
 ## Sharing it
 
 The deployed app is static and client only, so there is nothing to provision and no
