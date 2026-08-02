@@ -9,6 +9,10 @@ export interface MeterMessage {
   type: 'meter'
   pl: number
   pr: number
+  // Running |L-R| / (L+R) magnitude since the last meter tick, for mono
+  // detection, and the worklet's cumulative pool-starvation count.
+  diff: number
+  starve: number
 }
 
 export interface DiscontinuityMessage {

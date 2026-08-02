@@ -8,7 +8,7 @@ export interface PcmChunk {
 
 export interface PcmSinkCallbacks {
   onPcm: (chunk: PcmChunk) => void
-  onMeter?: (peakL: number, peakR: number) => void
+  onMeter?: (peakL: number, peakR: number, diff: number, starve: number) => void
   onDiscontinuity?: (missingFrames: number, expectedFrames: number) => void
 }
 
@@ -44,7 +44,7 @@ export class PcmSink {
 
   handleMessage(data: WorkletMessage): void {
     if (data.type === 'meter') {
-      this.callbacks?.onMeter?.(data.pl, data.pr)
+      this.callbacks?.onMeter?.(data.pl, data.pr, data.diff, data.starve)
       return
     }
     if (data.type === 'discontinuity') {

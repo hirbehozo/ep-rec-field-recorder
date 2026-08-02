@@ -16,6 +16,20 @@ export interface RecorderState {
   frames: number
   error: string | null
   deviceMessage: string | null
+  // What the track itself reported at open, to compare against the
+  // AudioContext's actual operating rate — a mismatch means the platform is
+  // silently resampling.
+  trackRate: number
+  // Highest frequency carrying real signal, measured live; a full-range
+  // source reading far below Nyquist means Android put the input on a
+  // band-limited voice-communication path.
+  bandwidth: number
+  // Running |L-R| normalized magnitude from the worklet, updated only when
+  // there's a nontrivial signal present; null until something's been played
+  // through it. Near zero means the channels are identical, i.e. mono.
+  monoRatio: number | null
+  // Cumulative count of the worklet's buffer pool running dry.
+  starve: number
 }
 
 // The worklet's final partial buffer flushes asynchronously after stop();
@@ -30,6 +44,14 @@ interface AudioGraph {
   sink: GainNode
 }
 
+// ~40dB below the loudest bin, in the 0-255 byte scale getByteFrequencyData
+// uses — the threshold a bin has to clear to count as "carrying signal"
+// rather than noise floor.
+const BANDWIDTH_FLOOR_BELOW_PEAK = 128
+const BANDWIDTH_MIN_PEAK_BYTE = 40
+const BANDWIDTH_GATE_LEVEL = 0.02
+const MONO_RATIO_GATE_LEVEL = 0.01
+
 const initialState: RecorderState = {
   status: 'idle',
   deviceLabel: '',
@@ -41,6 +63,10 @@ const initialState: RecorderState = {
   frames: 0,
   error: null,
   deviceMessage: null,
+  trackRate: 0,
+  bandwidth: 0,
+  monoRatio: null,
+  starve: 0,
 }
 
 export function useRecorder() {
@@ -50,6 +76,10 @@ export function useRecorder() {
   const framesRef = useRef(0)
   const discontinuityRef = useRef({ missingFrames: 0, expectedFrames: 0 })
   const peakSessionRef = useRef(0)
+  const recordingActiveRef = useRef(false)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const freqBinsRef = useRef<Uint8Array<ArrayBuffer> | null>(null)
+  const bandwidthRef = useRef(0)
 
   const close = useCallback(() => {
     const g = graphRef.current
@@ -58,9 +88,64 @@ export function useRecorder() {
       g.ctx.close().catch(() => {})
       graphRef.current = null
     }
+    analyserRef.current = null
+    freqBinsRef.current = null
+    bandwidthRef.current = 0
     pcmSinkRef.current.setOpen(false)
     pcmSinkRef.current.detach()
-    setState((s) => ({ ...s, status: 'idle', deviceLabel: '', sampleRate: 0, channelCount: 0 }))
+    setState((s) => ({
+      ...s,
+      status: 'idle',
+      deviceLabel: '',
+      sampleRate: 0,
+      channelCount: 0,
+      trackRate: 0,
+      bandwidth: 0,
+      monoRatio: null,
+      starve: 0,
+    }))
+  }, [])
+
+  // Live signal-quality readout, fed from every worklet meter message
+  // regardless of recording state — this is what makes gain staging and
+  // rig troubleshooting possible before ever pressing Record. peakSession
+  // (used for the post-take "quiet take" warning) only accumulates while a
+  // take is actually running.
+  const handleMeter = useCallback((peakL: number, peakR: number, diff: number, starve: number) => {
+    if (recordingActiveRef.current) {
+      peakSessionRef.current = Math.max(peakSessionRef.current, peakL, peakR)
+    }
+
+    const analyser = analyserRef.current
+    const freqBins = freqBinsRef.current
+    if (analyser && freqBins && (peakL >= BANDWIDTH_GATE_LEVEL || peakR >= BANDWIDTH_GATE_LEVEL)) {
+      analyser.getByteFrequencyData(freqBins)
+      let peakBin = 0
+      for (let i = 0; i < freqBins.length; i++) if (freqBins[i] > peakBin) peakBin = freqBins[i]
+      if (peakBin >= BANDWIDTH_MIN_PEAK_BYTE) {
+        const floor = peakBin - BANDWIDTH_FLOOR_BELOW_PEAK
+        let top = 0
+        for (let i = freqBins.length - 1; i > 0; i--) {
+          if (freqBins[i] > floor) {
+            top = i
+            break
+          }
+        }
+        const hz = (top * analyser.context.sampleRate) / analyser.fftSize
+        if (hz > bandwidthRef.current) bandwidthRef.current = hz
+      }
+    }
+
+    setState((s) => ({
+      ...s,
+      peakL,
+      peakR,
+      clipped: s.clipped || peakL >= 0.999 || peakR >= 0.999,
+      bandwidth: bandwidthRef.current,
+      monoRatio:
+        peakL > MONO_RATIO_GATE_LEVEL || peakR > MONO_RATIO_GATE_LEVEL ? diff : s.monoRatio,
+      starve: starve > s.starve ? starve : s.starve,
+    }))
   }, [])
 
   const openDevice = useCallback(
@@ -111,11 +196,13 @@ export function useRecorder() {
         close()
       }
 
+      // 'playback' asks for larger buffers. We're recording, not
+      // monitoring, so latency costs nothing and underruns cost everything.
       let ctx: AudioContext
       try {
         ctx = settings.sampleRate
-          ? new AudioContext({ sampleRate: settings.sampleRate, latencyHint: 'interactive' })
-          : new AudioContext({ latencyHint: 'interactive' })
+          ? new AudioContext({ sampleRate: settings.sampleRate, latencyHint: 'playback' })
+          : new AudioContext({ latencyHint: 'playback' })
       } catch {
         ctx = new AudioContext()
       }
@@ -132,6 +219,16 @@ export function useRecorder() {
       })
       node.port.onmessage = (e: MessageEvent<WorkletMessage>) =>
         pcmSinkRef.current.handleMessage(e.data)
+      // The live signal-quality readout needs to work before a take ever
+      // starts, so the meter handler is attached here, at device-open, not
+      // inside start(). start()/stop() only re-attach to add/remove the
+      // take-specific pcm/discontinuity handlers, always alongside the same
+      // handleMeter.
+      pcmSinkRef.current.attach({
+        onPcm: () => {},
+        onMeter: handleMeter,
+        onDiscontinuity: () => {},
+      })
       source.connect(node)
       // The node must reach destination through a zero gain node, or
       // process() never runs — an unreachable node gets skipped by the
@@ -141,6 +238,20 @@ export function useRecorder() {
       node.connect(sink)
       sink.connect(ctx.destination)
 
+      // Measures what the platform actually delivered, rather than what it
+      // claimed — a passive tap on source, which is already being pulled
+      // via the worklet's path to destination, so this needs no output
+      // connection of its own.
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
+      analyser.smoothingTimeConstant = 0
+      analyser.minDecibels = -90
+      analyser.maxDecibels = -10
+      source.connect(analyser)
+      analyserRef.current = analyser
+      freqBinsRef.current = new Uint8Array(analyser.frequencyBinCount)
+      bandwidthRef.current = 0
+
       graphRef.current = { stream, ctx, source, node, sink }
       const deviceLabel = track.label || 'unnamed input'
       setState((s) => ({
@@ -149,43 +260,50 @@ export function useRecorder() {
         deviceLabel,
         sampleRate: ctx.sampleRate,
         channelCount: settings.channelCount ?? 2,
+        trackRate: settings.sampleRate || 0,
+        bandwidth: 0,
+        monoRatio: null,
+        starve: 0,
         deviceMessage: looksLikeHardware(deviceLabel)
           ? null
           : 'That input looks like the phone microphone rather than the Sidekick. Pick the USB device from the list.',
       }))
     },
-    [close],
+    [close, handleMeter],
   )
 
-  const start = useCallback((onPcm: (chunk: PcmChunk) => void) => {
-    const g = graphRef.current
-    if (!g) return
-    framesRef.current = 0
-    discontinuityRef.current = { missingFrames: 0, expectedFrames: 0 }
-    peakSessionRef.current = 0
-    pcmSinkRef.current.attach({
-      onPcm: (chunk) => {
-        framesRef.current += chunk.frames
-        setState((s) => ({ ...s, frames: framesRef.current }))
-        onPcm(chunk)
-      },
-      onMeter: (peakL, peakR) => {
-        peakSessionRef.current = Math.max(peakSessionRef.current, peakL, peakR)
-        setState((s) => ({
-          ...s,
-          peakL,
-          peakR,
-          clipped: s.clipped || peakL >= 0.999 || peakR >= 0.999,
-        }))
-      },
-      onDiscontinuity: (missingFrames, expectedFrames) => {
-        discontinuityRef.current = { missingFrames, expectedFrames }
-      },
-    })
-    pcmSinkRef.current.setOpen(true)
-    g.node.port.postMessage({ on: true })
-    setState((s) => ({ ...s, status: 'recording', frames: 0, clipped: false }))
+  // Hands a chunk's buffers back to the worklet's pool once the caller is
+  // done with them (converted to bytes, or written), so the worklet never
+  // has to allocate mid-recording to keep up.
+  const recycleBuffers = useCallback((l: Float32Array, r: Float32Array) => {
+    graphRef.current?.node.port.postMessage({ type: 'recycle', l, r }, [l.buffer, r.buffer])
   }, [])
+
+  const start = useCallback(
+    (onPcm: (chunk: PcmChunk) => void) => {
+      const g = graphRef.current
+      if (!g) return
+      framesRef.current = 0
+      discontinuityRef.current = { missingFrames: 0, expectedFrames: 0 }
+      peakSessionRef.current = 0
+      recordingActiveRef.current = true
+      pcmSinkRef.current.attach({
+        onPcm: (chunk) => {
+          framesRef.current += chunk.frames
+          setState((s) => ({ ...s, frames: framesRef.current }))
+          onPcm(chunk)
+        },
+        onMeter: handleMeter,
+        onDiscontinuity: (missingFrames, expectedFrames) => {
+          discontinuityRef.current = { missingFrames, expectedFrames }
+        },
+      })
+      pcmSinkRef.current.setOpen(true)
+      g.node.port.postMessage({ on: true })
+      setState((s) => ({ ...s, status: 'recording', frames: 0, clipped: false }))
+    },
+    [handleMeter],
+  )
 
   const stop = useCallback(async (): Promise<
     { frames: number; missingFrames: number; peakSession: number } | undefined
@@ -198,7 +316,11 @@ export function useRecorder() {
     setState((s) => (s.status === 'recording' ? { ...s, status: 'ready' } : s))
     await new Promise((resolve) => setTimeout(resolve, STOP_DRAIN_MS))
     pcmSinkRef.current.setOpen(false)
-    pcmSinkRef.current.detach()
+    recordingActiveRef.current = false
+    // Re-attach the meter-only baseline rather than detaching outright, so
+    // the live signal-quality readout keeps working between takes while the
+    // device stays open.
+    pcmSinkRef.current.attach({ onPcm: () => {}, onMeter: handleMeter, onDiscontinuity: () => {} })
     // framesRef/discontinuityRef/peakSessionRef are updated synchronously
     // inside the sink callbacks as messages arrive, so by the time the
     // drain wait above resolves they already reflect the final flush and
@@ -210,7 +332,7 @@ export function useRecorder() {
       missingFrames: discontinuityRef.current.missingFrames,
       peakSession: peakSessionRef.current,
     }
-  }, [])
+  }, [handleMeter])
 
-  return { ...state, openDevice, close, start, stop }
+  return { ...state, openDevice, close, start, stop, recycleBuffers }
 }

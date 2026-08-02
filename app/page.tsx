@@ -71,9 +71,9 @@ export default function Home() {
 
   useEffect(() => {
     session.midi.setNoteHandler((channel, note, portKind) => {
-      // A Sidekick has no pads to bind — its note-shaped messages (there
-      // shouldn't be any) are not pad hits.
-      if (portKind === 'ep136') return
+      // A Sidekick has no pads to bind, and an Aira Compact note is not a
+      // K.O. II pad hit either — neither belongs in the library binding.
+      if (portKind === 'ep136' || portKind === 'aira') return
       library.onNoteOn(channel, note, tab === 'lib')
     })
     return () => session.midi.setNoteHandler(null)
@@ -566,6 +566,59 @@ export default function Home() {
               <i className="k">device</i>
               <span>{session.recorder.deviceLabel}</span>
             </div>
+          )}
+          {deviceOpen && (
+            <>
+              {(() => {
+                const nyquist = session.recorder.sampleRate / 2
+                const bw = session.recorder.bandwidth
+                const bwOk = bw === 0 || bw > nyquist * 0.66
+                const rateOk =
+                  !session.recorder.trackRate ||
+                  session.recorder.trackRate === session.recorder.sampleRate
+                const monoRatio = session.recorder.monoRatio
+                const monoOk = monoRatio === null || monoRatio > 0.002
+                const dropouts = session.recorder.starve + session.liveWriteErrors
+                return (
+                  <>
+                    <div className="row">
+                      <i className="k">bandwidth</i>
+                      <span className={bwOk ? 'ok' : 'bad'}>
+                        {bw === 0
+                          ? 'play something to measure'
+                          : `${(bw / 1000).toFixed(1)} kHz${bwOk ? '' : ` of ${(nyquist / 1000).toFixed(1)} possible`}`}
+                      </span>
+                    </div>
+                    <div className="row">
+                      <i className="k">resampling</i>
+                      <span className={rateOk ? 'ok' : 'bad'}>
+                        {rateOk
+                          ? 'none'
+                          : `${session.recorder.trackRate} into ${session.recorder.sampleRate}`}
+                      </span>
+                    </div>
+                    <div className="row">
+                      <i className="k">stereo</i>
+                      <span className={monoOk ? 'ok' : 'bad'}>
+                        {monoRatio === null
+                          ? 'play something to measure'
+                          : monoOk
+                            ? 'channels differ'
+                            : 'channels identical, this is mono'}
+                      </span>
+                    </div>
+                    <div className="row">
+                      <i className="k">dropouts</i>
+                      <span className={dropouts === 0 ? 'ok' : 'bad'}>
+                        {dropouts === 0
+                          ? 'none'
+                          : `${session.recorder.starve} late, ${session.liveWriteErrors} failed writes`}
+                      </span>
+                    </div>
+                  </>
+                )
+              })()}
+            </>
           )}
         </div>
       </div>

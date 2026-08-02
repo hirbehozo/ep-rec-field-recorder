@@ -203,6 +203,40 @@ set voiceIsolation false in the constraints and set track.contentHint to 'music'
 resolved track. Neither is guaranteed to be honoured, but where they are, they keep the
 input off the voice-communication path and its processing.
 
+NOTHING IN THE WORKLET MAY ALLOCATE
+
+The processor holds a pool of pre-allocated buffer pairs, hands one to the main thread by
+transfer when it fills, and takes the next from the pool. The main thread transfers the
+buffers straight back after converting. In steady state this allocates nothing, because
+allocation and the garbage collection behind it happen on the audio rendering thread and
+that is what crackle sounds like. Count pool starvation and surface it: running dry means
+the main thread fell behind.
+
+Copy samples in runs rather than one at a time, and re-read the current buffer references
+after every flush. A cached reference to a transferred buffer is stale, and the naive fix
+of returning early from process() silently discards the rest of that render quantum, which
+is a periodic click every 8192 frames. Test it: feed a counting ramp through several
+hundred render quanta and assert that every frame arrives and that the sequence is unbroken
+across chunk boundaries.
+
+Use latencyHint 'playback', not 'interactive'. We are recording, not monitoring, so
+latency costs nothing and underruns cost everything.
+
+MEASURE WHAT THE PLATFORM ACTUALLY GAVE US
+
+Constraints are requests, not guarantees, so the signal panel has to report reality:
+
+- bandwidth, from an AnalyserNode, as the highest bin within about 40 dB of the loudest.
+  A full-range source reading 7 or 8 kHz on a 48 kHz input means Android opened a
+  voice-communication path and band-limited it. Flag it when the measurement falls below
+  two thirds of Nyquist.
+- resampling, by comparing the track's reported sample rate against the AudioContext rate.
+- stereo, from a running mean absolute difference between channels computed in the worklet.
+  A ratio at zero means the channels are identical and the input is really mono.
+- dropouts, from pool starvation plus failed writes.
+
+Each row must say what to do about it, not just that something is wrong.
+
 QUALITY IS ALSO ABOUT NOT DROPPING SAMPLES
 
 Move PCM conversion and file writing into a dedicated Worker using OPFS
@@ -273,7 +307,9 @@ because the encoder never reports where the knob actually was. Do not present it
 absolute value in the UI.
 
 Detect a Sidekick by port name and only apply this decoding to ports that match, since the
-same CC numbers mean nothing in particular coming from anything else.
+same CC numbers mean nothing in particular coming from anything else. Classify Roland Aira
+Compact ports separately as well: they need no special decoding, but their notes must not
+reach the library tab's pad binding, because an Aira note is not a K.O. II pad hit.
 
 This table is community derived from monitoring a real unit, not vendor documentation, so
 treat it as a strong hypothesis. Structure the module so a single wrong CC number is a one

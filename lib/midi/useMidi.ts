@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { bpmFromClocks } from '../tempo'
 import type { MidiEvent } from '../types'
+import { looksLikeAira } from './aira'
 import { describeMessage, type PortKind } from './describeMessage'
 import { looksLikeEp136 } from './ep136'
 
@@ -117,7 +118,11 @@ export function useMidi() {
       seen.add(p.id)
       if (!armedRef.current.has(p.id)) {
         const name = p.name || 'input'
-        const kind: PortKind = looksLikeEp136(name) ? 'ep136' : 'generic'
+        const kind: PortKind = looksLikeEp136(name)
+          ? 'ep136'
+          : looksLikeAira(name)
+            ? 'aira'
+            : 'generic'
         armedRef.current.set(p.id, true)
         kindRef.current.set(p.id, kind)
         p.onmidimessage = (e) => handleMessage(p.id, name, kind, e)

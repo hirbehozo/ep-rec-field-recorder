@@ -22,6 +22,7 @@ export function useSession() {
   const [recording, setRecording] = useState(false)
   const [lastTakeWarning, setLastTakeWarning] = useState<string | null>(null)
   const [wakeLockHeld, setWakeLockHeld] = useState(false)
+  const [liveWriteErrors, setLiveWriteErrors] = useState(0)
 
   const takeNoRef = useRef(0)
   const writerClientRef = useRef<WriterClient | null>(null)
@@ -96,11 +97,15 @@ export function useSession() {
     // render can never stall a disk write. Falls back to accumulating
     // converted chunks in memory (built into one file on stop) when OPFS is
     // unavailable, or if the worker fails to open the handle.
+    setLiveWriteErrors(0)
     const fileHandle = await getWritableHandle(wavName)
     if (fileHandle) {
       const client = new WriterClient()
       try {
-        await client.open(fileHandle, sampleRate, 2)
+        await client.open(fileHandle, sampleRate, 2, {
+          onRecycle: recorder.recycleBuffers,
+          onWriteError: setLiveWriteErrors,
+        })
         writerClientRef.current = client
         memChunksRef.current = null
       } catch {
@@ -121,6 +126,9 @@ export function useSession() {
         writerClientRef.current.writeChunk(chunk.l, chunk.r, chunk.frames)
       } else {
         memChunksRef.current?.push(interleave(chunk.l, chunk.r, chunk.frames))
+        // No worker round-trip in the memory-fallback path, so the buffers
+        // are free the instant interleave() finishes reading them.
+        recorder.recycleBuffers(chunk.l, chunk.r)
       }
     })
     midi.startRecording(t0)
@@ -229,6 +237,7 @@ export function useSession() {
     setOffsetMs,
     lastTakeWarning,
     wakeLockHeld,
+    liveWriteErrors,
     start,
     stop,
     removeTake,

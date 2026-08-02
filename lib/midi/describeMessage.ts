@@ -1,6 +1,6 @@
 import { describeEp136Message } from './ep136'
 
-export type PortKind = 'ep136' | 'generic'
+export type PortKind = 'ep136' | 'aira' | 'generic'
 
 const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 

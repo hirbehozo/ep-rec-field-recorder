@@ -41,6 +41,14 @@ Web MIDI then lists two input ports. Enable clock out on the K.O. II in its syst
 before trusting any tempo readout — the hub is also what stops the phone from bus-powering
 the Sidekick, which otherwise drains the phone across a long session.
 
+Roland Aira Compact units (S-1, J-6, T-8, E-4, P-6) are also class-compliant USB-C audio
+and MIDI interfaces, and can join the rig either directly (as the audio interface, in which
+case only that one unit's own MIDI reaches the phone) or through the Sidekick's 3.5mm
+inputs alongside the K.O. II, which is the better arrangement whenever more than one
+instrument is playing. Aira notes are recognized but never bound to the library tab's pad
+grid — an Aira key is not a K.O. II pad hit. See `reference/hardware.md` for the rig
+diagrams.
+
 ## First run checklist
 
 Work through the **Signal** panel at the bottom of the screen — it exists to tell you
@@ -73,6 +81,22 @@ Set levels with the Sidekick's own gain knobs until the numbers beside the meter
 around &minus;6 dBFS. The CLIP flag latches for the whole take once triggered, and a take
 that never passed &minus;30 dBFS gets flagged when you stop &mdash; a quiet take is a wasted
 one and the bars alone don't make that obvious.
+
+Once a device is open, four more Signal rows measure what the platform actually delivered
+rather than what it claimed, live and continuously (not just during a take):
+
+- **bandwidth** &mdash; the highest frequency carrying real energy. Reads low (well under
+  two thirds of Nyquist) when Android has opened the input on a band-limited
+  voice-communication path instead of a full-range one; play something through the input to
+  measure it.
+- **resampling** &mdash; compares what the track itself reported against what the
+  `AudioContext` actually opened at. Anything other than "none" means a resampler is
+  sitting silently in the path.
+- **stereo** &mdash; a running channel-difference measurement from the capture worklet.
+  "Channels identical" means the input is really mono and is being duplicated across L/R.
+- **dropouts** &mdash; the capture worklet's buffer-pool starvation count plus live write
+  failures. Both mean the main thread fell behind the audio thread; "none" is the only
+  healthy reading.
 
 ## Reading the display
 
@@ -135,6 +159,16 @@ anything.
 
 ## Reliability
 
+The capture worklet allocates nothing once running: it holds a pool of six pre-allocated
+buffer pairs, hands one to the main thread by transfer when it fills, and gets it back the
+instant the main thread (or, when writing to OPFS, the writer worker one hop further out)
+is done with it. Allocation and the garbage collection behind it happen on the audio
+rendering thread otherwise, and that's what crackle sounds like. Running the pool dry counts
+as a starvation event rather than silently degrading — surfaced live in the Signal panel's
+dropouts row — and is verified with a real `AudioWorkletProcessor` run in Node: a counting
+ramp is fed through several hundred render quanta and checked frame-by-frame for gaps or
+duplicates across chunk boundaries.
+
 PCM conversion and the actual disk write both happen off the main thread, in a dedicated
 worker using OPFS's synchronous file access handle, so a slow render can never stall a
 write mid-take. Write failures are never swallowed: a failed chunk is counted rather than
@@ -161,9 +195,11 @@ parses back to the right MPEG frame count and duration through a from-scratch fr
   documented for either device anyway.
 - **The remaining quality ceiling is Android's, not this app's.** A browser cannot fully
   select the OS audio source; you get whatever processing the platform applies. Disabling
-  noise suppression, auto gain control and voice isolation, and marking the track as music
-  via `contentHint`, is the whole of the available influence &mdash; none of it is
-  guaranteed to be honored, but none of it costs anything to ask for either.
+  noise suppression, auto gain control and voice isolation, marking the track as music via
+  `contentHint`, and opening the `AudioContext` with `latencyHint: 'playback'` rather than
+  `'interactive'` (we're recording, not monitoring, so latency costs nothing and underruns
+  cost everything) is the whole of the available influence &mdash; none of it is guaranteed
+  to be honored, but none of it costs anything to ask for either.
 - **Echo cancellation stays on, deliberately.** Confirmed on real hardware: explicitly
   disabling `echoCancellation` breaks Android's audio device routing outright &mdash;
   `getUserMedia` reports the requested USB device as open with matching settings while

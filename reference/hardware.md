@@ -103,6 +103,40 @@ position pointer and start / continue / stop.
 Pads send notes on a per-pad MIDI channel set in sound edit, and a pad with its sample set
 to 000 sends MIDI without consuming a voice, which is how it drives external gear silently.
 
+## Roland Aira Compact (S-1, J-6, T-8, E-4, P-6)
+
+All of them are class-compliant USB-C audio and MIDI interfaces, no drivers, explicitly
+sold as working with phones and tablets. They also chain to each other over Aira Link and
+the MIX IN jack, and the whole chain can be streamed out of one unit's USB-C.
+
+The constraint is the same one as everywhere else here: Android hands the browser exactly
+one audio input device. That gives two usable rigs.
+
+Aira only, no mixer:
+
+```
+S-1  --MIX IN / Aira Link-->  J-6  --USB-C-->  phone
+```
+
+The last unit in the chain is the audio interface. Put the others on a powered hub as well
+if you want their MIDI, since only the USB-connected unit's MIDI reaches the phone.
+
+Mixed with the EP rig:
+
+```
+S-1 / J-6   --3.5mm-->  Sidekick CH2
+EP-133      --3.5mm-->  Sidekick CH1
+Sidekick    --USB-C-->  powered hub -->  phone       audio for everything
+each unit   --USB-C-->  powered hub                 midi for everything
+```
+
+The Sidekick stays the interface and the Airas contribute audio through it as analog
+sources. This is the better arrangement whenever more than one instrument is playing.
+
+Do not assume a sample rate. If an Aira runs at a different rate to what Android opens,
+a resampler appears in the path silently. The app's signal panel reports the track rate
+against the context rate, so plug the unit in and read the answer rather than guessing.
+
 ## Reading the sample library
 
 The short version: it is possible, it is undocumented on purpose, and it is not where you

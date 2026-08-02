@@ -53,10 +53,13 @@ describe('PcmSink', () => {
 
   it('forwards meter messages regardless of open state', () => {
     const sink = new PcmSink()
-    const meters: Array<[number, number]> = []
-    sink.attach({ onPcm: () => {}, onMeter: (l, r) => meters.push([l, r]) })
-    sink.handleMessage({ type: 'meter', pl: 0.4, pr: 0.6 })
-    expect(meters).toEqual([[0.4, 0.6]])
+    const meters: Array<[number, number, number, number]> = []
+    sink.attach({
+      onPcm: () => {},
+      onMeter: (l, r, diff, starve) => meters.push([l, r, diff, starve]),
+    })
+    sink.handleMessage({ type: 'meter', pl: 0.4, pr: 0.6, diff: 0.1, starve: 2 })
+    expect(meters).toEqual([[0.4, 0.6, 0.1, 2]])
   })
 
   it('passes raw L/R buffers through untouched, no conversion here', () => {

@@ -55,13 +55,14 @@ function interleave(left, right, frames) {
 }
 
 class WriteSession {
-  constructor(handle, sampleRate, channels) {
+  constructor(handle, sampleRate, channels, onWriteError) {
     this.handle = handle
     this.sampleRate = sampleRate
     this.channels = channels
     this.position = 44
     this.frames = 0
     this.writeErrors = 0
+    this.onWriteError = onWriteError
     this.tryWrite(wavHeader(0, sampleRate, channels), 0)
   }
 
@@ -71,6 +72,7 @@ class WriteSession {
       return true
     } catch (e) {
       this.writeErrors++
+      this.onWriteError?.(this.writeErrors)
       return false
     }
   }
@@ -102,7 +104,9 @@ self.onmessage = async (e) => {
   if (msg.type === 'open') {
     try {
       const accessHandle = await msg.fileHandle.createSyncAccessHandle()
-      session = new WriteSession(accessHandle, msg.sampleRate, msg.channels)
+      session = new WriteSession(accessHandle, msg.sampleRate, msg.channels, (count) =>
+        self.postMessage({ type: 'writeError', count }),
+      )
       self.postMessage({ type: 'opened' })
     } catch (err) {
       self.postMessage({ type: 'openError', message: (err && err.message) || String(err) })
@@ -112,6 +116,10 @@ self.onmessage = async (e) => {
 
   if (msg.type === 'pcm') {
     if (session) session.writeChunk(msg.l, msg.r, msg.frames)
+    // interleave() inside writeChunk already copied everything it needs out
+    // of l/r synchronously, so they're free to hand straight back to the
+    // worklet the instant this returns — that's what keeps its pool fed.
+    self.postMessage({ type: 'recycle', l: msg.l, r: msg.r }, [msg.l.buffer, msg.r.buffer])
     return
   }
 
