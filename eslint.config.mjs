@@ -23,6 +23,8 @@ const eslintConfig = [
       'public/rec-worklet.js',
       'public/sw.js',
       'public/writer-worker.js',
+      'public/mp3-worker.js',
+      'public/lame.min.js',
       'reference/**',
       'scripts/**',
     ],

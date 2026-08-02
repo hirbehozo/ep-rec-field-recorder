@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Display from './components/Display'
 import { looksLikeHardware } from '@/lib/audio/deviceHint'
-import { exportAllZip, exportJson, exportMidi, exportWav, shareOrDownload } from '@/lib/export'
+import {
+  exportAllZip,
+  exportJson,
+  exportMidi,
+  exportMp3,
+  exportWav,
+  shareOrDownload,
+} from '@/lib/export'
 import { isPersistent } from '@/lib/store'
 import { useSession } from '@/lib/useSession'
 import type { SessionMeta } from '@/lib/types'
@@ -18,6 +25,8 @@ interface AudioDeviceInfo {
 const OFFSET_MIN = -500
 const OFFSET_MAX = 500
 const OFFSET_STEP = 5
+const MP3_BITRATES = [128, 192, 256, 320] as const
+const DEFAULT_MP3_BITRATE = 192
 
 const pad = (n: number, w: number) => String(n).padStart(w, '0')
 const hms = (s: number) =>
@@ -38,6 +47,9 @@ export default function Home() {
   const [scanning, setScanning] = useState(false)
   const [pageError, setPageError] = useState<string | null>(null)
   const [persistent, setPersistent] = useState<boolean | null>(null)
+  const [mp3Bitrate, setMp3Bitrate] = useState(DEFAULT_MP3_BITRATE)
+  // take id -> 0..1 while that take's MP3 is encoding; absent otherwise
+  const [mp3Progress, setMp3Progress] = useState<Record<string, number>>({})
 
   useEffect(() => {
     isPersistent().then(setPersistent)
@@ -153,6 +165,28 @@ export default function Home() {
       }
     },
     [session.offsetMs],
+  )
+
+  const onExportMp3 = useCallback(
+    async (meta: SessionMeta) => {
+      setPageError(null)
+      setMp3Progress((p) => ({ ...p, [meta.id]: 0 }))
+      try {
+        const file = await exportMp3(meta, mp3Bitrate, (fraction) => {
+          setMp3Progress((p) => ({ ...p, [meta.id]: fraction }))
+        })
+        await shareOrDownload(file)
+      } catch (e) {
+        setPageError(`MP3 encoding failed: ${e instanceof Error ? e.message : String(e)}`)
+      } finally {
+        setMp3Progress((p) => {
+          const next = { ...p }
+          delete next[meta.id]
+          return next
+        })
+      }
+    },
+    [mp3Bitrate],
   )
 
   const messages = useMemo(() => {
@@ -286,6 +320,23 @@ export default function Home() {
           </div>
         </div>
         <div className="strip">
+          <span className="n">4</span>
+          <div>
+            <span className="lg">Mp3 bitrate</span>
+            <select
+              className="panel-select"
+              value={mp3Bitrate}
+              onChange={(e) => setMp3Bitrate(Number(e.target.value))}
+            >
+              {MP3_BITRATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate} kbps
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="strip">
           <span className="n">3</span>
           <div>
             <span className="lg">Midi offset</span>
@@ -361,21 +412,62 @@ export default function Home() {
                   ) : null}
                 </div>
                 <div className="acts">
-                  <button type="button" className="key mini" onClick={() => onExport(m, 'wav')}>
-                    wav
-                  </button>
-                  <button type="button" className="key mini" onClick={() => onExport(m, 'mid')}>
-                    midi
-                  </button>
-                  <button type="button" className="key mini" onClick={() => onExport(m, 'json')}>
-                    json
-                  </button>
-                  <button type="button" className="key mini" onClick={() => onExport(m, 'zip')}>
-                    all
-                  </button>
-                  <button type="button" className="key mini del" onClick={() => onDeleteTake(m)}>
-                    delete
-                  </button>
+                  {(() => {
+                    const encoding = mp3Progress[m.id]
+                    const busy = encoding !== undefined
+                    return (
+                      <>
+                        <button
+                          type="button"
+                          className="key mini"
+                          disabled={busy}
+                          onClick={() => onExport(m, 'wav')}
+                        >
+                          wav
+                        </button>
+                        <button
+                          type="button"
+                          className="key mini"
+                          disabled={busy}
+                          onClick={() => onExportMp3(m)}
+                        >
+                          {busy ? `${Math.round(encoding * 100)}%` : 'mp3'}
+                        </button>
+                        <button
+                          type="button"
+                          className="key mini"
+                          disabled={busy}
+                          onClick={() => onExport(m, 'mid')}
+                        >
+                          midi
+                        </button>
+                        <button
+                          type="button"
+                          className="key mini"
+                          disabled={busy}
+                          onClick={() => onExport(m, 'json')}
+                        >
+                          json
+                        </button>
+                        <button
+                          type="button"
+                          className="key mini"
+                          disabled={busy}
+                          onClick={() => onExport(m, 'zip')}
+                        >
+                          all
+                        </button>
+                        <button
+                          type="button"
+                          className="key mini del"
+                          disabled={busy}
+                          onClick={() => onDeleteTake(m)}
+                        >
+                          delete
+                        </button>
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             )

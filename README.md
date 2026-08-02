@@ -115,13 +115,23 @@ anything.
   truncating cast, since truncation produces signal-correlated error rather than noise;
   measured on a sine sweep this keeps conversion error around &minus;144 dBFS, well under
   the interface's own noise floor.
+- **mp3** &mdash; encoded on demand at the bitrate set in input row 4 (128/192/256/320
+  kbps, default 192), joint stereo, matching the source sample rate. Encoding runs entirely
+  in a worker using a vendored, offline-capable build of the LAME encoder
+  (`public/lame.min.js`, LGPL &mdash; MP3 patents expired worldwide in 2017), streamed out
+  of the stored WAV in bounded blocks so a long take can't exhaust memory. Runs at roughly
+  3&ndash;10x realtime depending on the phone, so a long take takes a while; the button
+  shows progress and the rest of that take's actions disable until it's done. MP3 is a
+  convenience copy for sharing &mdash; the WAV is the archive. Re-encode from the WAV
+  whenever you want a different bitrate rather than keeping the MP3 as your only copy.
 - **midi** &mdash; standard MIDI file, format 1, one track per port, hanging notes closed
 - **json** &mdash; every byte of every message with millisecond offsets, plus clock
   timestamps. This is the archival copy, and the one that carries the Sidekick's mixer
   automation — fader rides, EQ sweeps, cue toggles, all timestamped next to the audio. That
   performance data is the feature no other recorder on this rig gives you.
-- **all** &mdash; zips the three files together (a from-scratch, stored-only zip writer;
-  audio doesn't compress usefully so there's no point adding a dependency for it)
+- **all** &mdash; zips the WAV, MIDI and JSON together (a from-scratch, stored-only zip
+  writer; audio doesn't compress usefully so there's no point adding a dependency for it).
+  Does not include the MP3, since that's a separate, slower, opt-in encode.
 
 ## Reliability
 
@@ -132,6 +142,11 @@ silently producing a gap, and the take is flagged with how many write errors it 
 capture worklet separately compares frames actually captured against what the audio clock
 says should have arrived, so a dropped render quantum shows up as a recorded fact (a "gap"
 flag on the take) instead of a silently shortened recording.
+
+MP3 encoding is verified against the actual vendored encoder rather than trusted blind: a
+test loads `public/lame.min.js` for real and confirms a five-second signal converts to
+exactly 240,000 frames, encodes to within a few percent of the requested bitrate, and
+parses back to the right MPEG frame count and duration through a from-scratch frame reader.
 
 ## Known limits
 

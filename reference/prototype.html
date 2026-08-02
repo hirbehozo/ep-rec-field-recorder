@@ -167,6 +167,16 @@ select{
       <span class="n">2</span>
       <div><span class="lg">Midi ports</span><div class="chips" id="chips"></div></div>
     </div>
+    <div class="strip" id="rateStrip">
+      <span class="n">4</span>
+      <div><span class="lg">Mp3 bitrate</span>
+        <select id="rateSel">
+          <option value="128">128 kbps</option>
+          <option value="192" selected>192 kbps</option>
+          <option value="256">256 kbps</option>
+          <option value="320">320 kbps</option>
+        </select></div>
+    </div>
     <div class="strip">
       <span class="n">3</span>
       <div><span class="lg">Midi offset</span>
@@ -804,16 +814,88 @@ async function fileFor(meta, kind){
   if (kind === 'json') return new File([JSON.stringify(p, null, 1)], meta.id + '.json', { type: 'application/json' });
   return new File([buildSMF(p.events, meta.bpm || 120, S.offsetMs)], meta.id + '.mid', { type: 'audio/midi' });
 }
+// Streams the stored 24-bit wav out of OPFS, converts to 16-bit for the encoder, and
+// keeps exactly one block in flight so a long take cannot exhaust memory.
+function encodeMp3(meta, bitrate, onProgress){
+  return new Promise(async (resolve, reject) => {
+    let blob;
+    try {
+      blob = meta.mem ? S.memBlobs[meta.wav] : await getBlob(meta.wav);
+      if (!blob) throw new Error('audio for that take is gone');
+    } catch (err) { return reject(err); }
+
+    const worker = new Worker('mp3-worker.js');
+    let ack = null;
+    worker.onerror = (err) => { worker.terminate(); reject(new Error('encoder failed to start')); };
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === 'ready' || m.type === 'progress'){
+        if (m.type === 'progress') onProgress(m.done / blob.size);
+        if (ack){ const f = ack; ack = null; f(); }
+      }
+      if (m.type === 'done'){ worker.terminate(); resolve(m.blob); }
+    };
+    const wait = () => new Promise(r => { ack = r; });
+
+    const started = wait();
+    worker.postMessage({ type: 'init', sampleRate: meta.sampleRate, bitrate });
+    await started;
+
+    const FRAME = 6;                        // 24 bit, two channels
+    const BLOCK = 1152 * 256 * FRAME;       // whole encoder frames, about 1.7 MB
+    let pos = 44;                           // past the wav header
+    try {
+      while (pos < blob.size){
+        const end = Math.min(blob.size, pos + BLOCK);
+        const buf = new Uint8Array(await blob.slice(pos, end).arrayBuffer());
+        const n = Math.floor(buf.length / FRAME);
+        const l = new Int16Array(n), r = new Int16Array(n);
+        for (let i = 0, o = 0; i < n; i++, o += FRAME){
+          let a = buf[o] | (buf[o+1] << 8) | (buf[o+2] << 16);
+          let b = buf[o+3] | (buf[o+4] << 8) | (buf[o+5] << 16);
+          if (a & 0x800000) a -= 0x1000000;
+          if (b & 0x800000) b -= 0x1000000;
+          a = (a + 128) >> 8; b = (b + 128) >> 8;
+          l[i] = a > 32767 ? 32767 : a < -32768 ? -32768 : a;
+          r[i] = b > 32767 ? 32767 : b < -32768 ? -32768 : b;
+        }
+        const next = wait();
+        worker.postMessage({ type: 'chunk', l, r, done: end }, [l.buffer, r.buffer]);
+        await next;
+        pos = end;
+      }
+      worker.postMessage({ type: 'end' });
+    } catch (err) { worker.terminate(); reject(err); }
+  });
+}
+
+async function deliver(file){
+  if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: file.name });
+  else {
+    const u = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = u; a.download = file.name; a.click();
+    setTimeout(() => URL.revokeObjectURL(u), 4000);
+  }
+}
+async function handOffMp3(meta, btn){
+  const rate = parseInt($('#rateSel').value, 10);
+  const row = btn.parentElement;
+  [...row.children].forEach(b => { b.disabled = true; });
+  btn.textContent = '0%';
+  try {
+    const blob = await encodeMp3(meta, rate, (f) => { btn.textContent = Math.round(f * 100) + '%'; });
+    await deliver(new File([blob], meta.id + '.mp3', { type: 'audio/mpeg' }));
+  } catch (e) {
+    if (!e || e.name !== 'AbortError') msg('MP3 encoding failed: ' + (e.message || e));
+  }
+  btn.textContent = 'mp3';
+  [...row.children].forEach(b => { b.disabled = false; });
+}
 async function handOff(meta, kind){
   try {
     const f = await fileFor(meta, kind);
-    if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: f.name });
-    else {
-      const u = URL.createObjectURL(f);
-      const a = document.createElement('a');
-      a.href = u; a.download = f.name; a.click();
-      setTimeout(() => URL.revokeObjectURL(u), 4000);
-    }
+    await deliver(f);
   } catch (e) {
     if (e && e.name === 'AbortError') return;
     msg('Export failed: ' + (e.message || e));
@@ -841,11 +923,12 @@ function renderTakes(){
       (m.clipped ? ' / <b>clipped</b>' : '') + '</div>';
     const acts = document.createElement('div');
     acts.className = 'acts';
-    for (const [label, kind] of [['wav', 'wav'], ['midi', 'mid'], ['json', 'json']]){
+    for (const [label, kind] of [['wav', 'wav'], ['mp3', 'mp3'], ['midi', 'mid'], ['json', 'json']]){
       const b = document.createElement('button');
       b.className = 'key mini';
       b.textContent = label;
-      b.onclick = () => handOff(m, kind);
+      b.style.minWidth = kind === 'mp3' ? '46px' : '';
+      b.onclick = () => kind === 'mp3' ? handOffMp3(m, b) : handOff(m, kind);
       acts.appendChild(b);
     }
     const del = document.createElement('button');

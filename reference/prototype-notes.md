@@ -437,8 +437,9 @@ display holds 30fps while recording with meters moving.
 ```
 Build lib/export.ts and wire it to the session row actions.
 
-Three exports per take: the WAV straight from storage, an SMF built on demand from the
-stored events using the take's BPM and the current offset value, and the raw JSON payload.
+Four exports per take: the WAV straight from storage, an MP3 encoded on demand, an SMF
+built on demand from the stored events using the take's BPM and the current offset value,
+and the raw JSON payload.
 The JSON is where the Sidekick's mixer automation lives, decoded alongside the raw bytes,
 so it is the export that carries the performance rather than just the result. Say so in
 the UI, one short line, because it is not obvious that json is the interesting one.
@@ -449,7 +450,35 @@ Delivery: navigator.share with files when navigator.canShare accepts them, which
 good path on Android, falling back to an object URL download. Swallow AbortError silently
 since that is just me dismissing the share sheet.
 
-Filenames: <takeid>.wav, <takeid>.mid, <takeid>.json.
+Filenames: <takeid>.wav, <takeid>.mp3, <takeid>.mid, <takeid>.json.
+
+MP3
+
+Vendor @breezystack/lamejs into public/lame.min.js rather than importing it, because the
+app has to encode with no network. Keep the LGPL notice at the top of the file. MP3 patents
+expired in 2017 so there is nothing else to worry about. Do not reach for MediaRecorder or
+WebCodecs first: Chrome encodes Opus and AAC, not MP3, so a JS encoder is the only route.
+
+Encoding runs in public/mp3-worker.js, never on the main thread. It is roughly 3 to 10
+times realtime, so a fifteen minute take is a minute of work and the panel has to stay
+alive through it.
+
+The main thread streams the stored WAV out of OPFS in blocks of 1152 * 256 frames, converts
+24-bit to 16-bit for the encoder with rounding, and sends each block with its buffers
+transferred. Critically, it waits for the worker's acknowledgement before sending the next
+block. Without that backpressure the reader outruns the encoder and a long take queues the
+entire file as Int16 in worker memory, which is how you get an out-of-memory crash on a
+phone. Bound it to one block in flight.
+
+Progress replaces the button label with a percentage while encoding and the other buttons
+in that row disable, since exporting the same take twice at once helps nobody.
+
+Bitrate is a user control, a fourth channel strip in the input section offering 128, 192,
+256 and 320, defaulting to 192. Joint stereo, 48 kHz, matching the source.
+
+Verify the pipeline end to end rather than trusting it: a five second test signal should
+convert to exactly 240000 frames, produce a file measuring within a few percent of the
+requested bitrate, and parse back to the right MPEG frame count and duration.
 
 Add an Export all action that zips a take's three files together. Use a tiny zip writer
 you implement yourself with stored (uncompressed) entries rather than adding a dependency,
@@ -472,7 +501,9 @@ Finish and publish.
   font the app uses, and the orange record key below it. Regenerate at each size rather
   than scaling one bitmap.
 - public/sw.js caching the app shell, network first with cache fallback, registered from
-  a client component. It must survive a cold start with no network.
+  a client component. It must survive a cold start with no network. The shell list has to
+  include lame.min.js and mp3-worker.js, or MP3 export breaks offline while everything
+  else keeps working, which is a confusing failure to debug later.
 - README: what it is, the rig diagram, the first run checklist, how the sync works and why
   the offset control exists, known limits (stereo only because Android will not give a
   browser more than the default pair, foreground only, 16 bit), and the live URL

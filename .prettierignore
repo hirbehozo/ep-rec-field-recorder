@@ -4,3 +4,4 @@ out
 coverage
 pnpm-lock.yaml
 reference
+public/lame.min.js

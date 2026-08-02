@@ -1,3 +1,4 @@
+import { encodeMp3 } from './audio/mp3'
 import { buildSMF } from './smf'
 import { getBlob } from './store'
 import type { SessionMeta, SessionPayload } from './types'
@@ -29,6 +30,22 @@ export async function exportMidi(meta: SessionMeta, offsetMs: number): Promise<F
   const payload = await loadPayload(meta)
   const blob = buildSMF(payload.events, meta.bpm ?? 120, offsetMs)
   return new File([blob], `${meta.id}.mid`, { type: 'audio/midi' })
+}
+
+/**
+ * MP3 is a convenience copy for sharing, not the archive — the WAV is.
+ * Encoded on demand at the given bitrate, roughly 3-10x realtime depending
+ * on the phone, so a long take takes a while; onProgress drives a button
+ * label rather than leaving the UI looking stuck.
+ */
+export async function exportMp3(
+  meta: SessionMeta,
+  bitrate: number,
+  onProgress?: (fraction: number) => void,
+): Promise<File> {
+  const wavBlob = await getBlob(meta.wav)
+  const mp3Blob = await encodeMp3(wavBlob, meta.sampleRate, { bitrate, onProgress })
+  return new File([mp3Blob], `${meta.id}.mp3`, { type: 'audio/mpeg' })
 }
 
 export async function exportAllZip(meta: SessionMeta, offsetMs: number): Promise<File> {

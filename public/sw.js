@@ -5,6 +5,8 @@ const APP_SHELL = [
   '/manifest.webmanifest',
   '/rec-worklet.js',
   '/writer-worker.js',
+  '/mp3-worker.js',
+  '/lame.min.js',
   '/icon-192.png',
   '/icon-512.png',
 ]
