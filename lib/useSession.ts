@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRecorder } from './audio/useRecorder'
+import { WriterClient } from './audio/writerClient'
 import { useMidi } from './midi/useMidi'
-import {
-  openWritable,
-  putFile,
-  readIndex,
-  removeSession,
-  writeIndex,
-  type FileWriter,
-} from './store'
+import { getWritableHandle, putFile, readIndex, removeSession, writeIndex } from './store'
 import { bpmFromClocks } from './tempo'
 import { makeTakeId } from './takeId'
 import type { SessionMeta, SessionPayload } from './types'
-import { wavHeader } from './wav'
+import { BYTES_PER_SAMPLE, interleave, wavHeader } from './wav'
 
 interface CurrentTake {
   id: string
@@ -30,7 +24,7 @@ export function useSession() {
   const [wakeLockHeld, setWakeLockHeld] = useState(false)
 
   const takeNoRef = useRef(0)
-  const writerRef = useRef<FileWriter | null>(null)
+  const writerClientRef = useRef<WriterClient | null>(null)
   const memChunksRef = useRef<Uint8Array<ArrayBuffer>[] | null>(null)
   const currentTakeRef = useRef<CurrentTake | null>(null)
   const wakeLockRef = useRef<WakeLockSentinel | null>(null)
@@ -97,13 +91,24 @@ export function useSession() {
     const wavName = `${id}.wav`
     const sampleRate = recorderStateRef.current.sampleRate
 
-    const writer = await openWritable(wavName)
-    if (writer) {
-      writerRef.current = writer
-      memChunksRef.current = null
-      await writer.write(wavHeader(0, sampleRate, 2))
+    // PCM conversion and the actual file write happen off the main thread
+    // in a dedicated worker via OPFS createSyncAccessHandle, so a slow
+    // render can never stall a disk write. Falls back to accumulating
+    // converted chunks in memory (built into one file on stop) when OPFS is
+    // unavailable, or if the worker fails to open the handle.
+    const fileHandle = await getWritableHandle(wavName)
+    if (fileHandle) {
+      const client = new WriterClient()
+      try {
+        await client.open(fileHandle, sampleRate, 2)
+        writerClientRef.current = client
+        memChunksRef.current = null
+      } catch {
+        writerClientRef.current = null
+        memChunksRef.current = []
+      }
     } else {
-      writerRef.current = null
+      writerClientRef.current = null
       memChunksRef.current = []
     }
 
@@ -112,8 +117,11 @@ export function useSession() {
     currentTakeRef.current = { id, startedAt, sampleRate }
 
     recorder.start((chunk) => {
-      if (writerRef.current) writerRef.current.write(chunk.bytes).catch(() => {})
-      else memChunksRef.current?.push(chunk.bytes)
+      if (writerClientRef.current) {
+        writerClientRef.current.writeChunk(chunk.l, chunk.r, chunk.frames)
+      } else {
+        memChunksRef.current?.push(interleave(chunk.l, chunk.r, chunk.frames))
+      }
     })
     midi.startRecording(t0)
 
@@ -126,21 +134,28 @@ export function useSession() {
     const take = currentTakeRef.current
     if (!recordingRef.current || !take) return
 
-    const result = await recorder.stop()
-    const frames = result?.frames ?? 0
+    const captureResult = await recorder.stop()
+    const capturedFrames = captureResult?.frames ?? 0
+    const missingFrames = captureResult?.missingFrames ?? 0
+    const peakSession = captureResult?.peakSession ?? 0
     const midiResult = midi.stopRecording()
 
-    const dataBytes = frames * 4
     const wavName = `${take.id}.wav`
     const midiName = `${take.id}.midi.json`
     let mem = false
+    let writeErrors = 0
+    // Durably-persisted frame count, which can be less than capturedFrames
+    // if any writes failed — duration reflects what's actually in the file.
+    let frames = capturedFrames
 
-    if (writerRef.current) {
-      await writerRef.current.writeAt(0, wavHeader(dataBytes, take.sampleRate, 2))
-      await writerRef.current.close()
-      writerRef.current = null
+    if (writerClientRef.current) {
+      const closeResult = await writerClientRef.current.close()
+      writeErrors = closeResult.writeErrors
+      frames = closeResult.frames
+      writerClientRef.current = null
     } else {
       mem = true
+      const dataBytes = capturedFrames * 2 * BYTES_PER_SAMPLE
       const blob = new Blob(
         [wavHeader(dataBytes, take.sampleRate, 2), ...(memChunksRef.current ?? [])],
         { type: 'audio/wav' },
@@ -168,6 +183,8 @@ export function useSession() {
       wav: wavName,
       midi: midiName,
       mem,
+      writeErrors,
+      missingFrames,
     }
     const payload: SessionPayload = { meta, events: midiResult.events, clocks: midiResult.clocks }
     await putFile(midiName, new Blob([JSON.stringify(payload)], { type: 'application/json' }))
@@ -187,9 +204,11 @@ export function useSession() {
     recordingRef.current = false
     setRecording(false)
     setLastTakeWarning(
-      frames === 0
+      capturedFrames === 0
         ? 'That take captured no audio. The selected input is not delivering samples.'
-        : null,
+        : peakSession < 0.03
+          ? 'That take peaked below -30 dBFS. Turn up the Sidekick gain before the next one.'
+          : null,
     )
   }, [recorder, midi, offsetMs])
 

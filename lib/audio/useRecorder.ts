@@ -48,6 +48,8 @@ export function useRecorder() {
   const graphRef = useRef<AudioGraph | null>(null)
   const pcmSinkRef = useRef(new PcmSink())
   const framesRef = useRef(0)
+  const discontinuityRef = useRef({ missingFrames: 0, expectedFrames: 0 })
+  const peakSessionRef = useRef(0)
 
   const close = useCallback(() => {
     const g = graphRef.current
@@ -70,13 +72,15 @@ export function useRecorder() {
       // explicitly disabling it broke Android's device routing entirely on
       // real hardware — getUserMedia would report the requested USB device
       // as open with matching settings while silently capturing the phone's
-      // built-in mic instead. noiseSuppression/autoGainControl can be
-      // disabled safely. For a direct line-in signal with no acoustic loop
-      // between a speaker and a mic, echo cancellation has ~nothing to do
-      // anyway, so this costs effectively nothing.
-      const constraints: MediaTrackConstraints = {
+      // built-in mic instead. noiseSuppression/autoGainControl/voiceIsolation
+      // can be disabled safely. For a direct line-in signal with no acoustic
+      // loop between a speaker and a mic, echo cancellation has ~nothing to
+      // do anyway, so leaving it at default costs effectively nothing.
+      // voiceIsolation is Chrome-specific and not yet in TS's DOM lib.
+      const constraints: MediaTrackConstraints & { voiceIsolation?: boolean } = {
         noiseSuppression: false,
         autoGainControl: false,
+        voiceIsolation: false,
         channelCount: { ideal: 2 },
       }
       if (deviceId) constraints.deviceId = { exact: deviceId }
@@ -92,6 +96,13 @@ export function useRecorder() {
 
       const track = stream.getAudioTracks()[0]
       const settings = track.getSettings()
+      // Tells the platform this is music, not a voice call, where honored.
+      // Not guaranteed, but costs nothing to ask.
+      try {
+        track.contentHint = 'music'
+      } catch {
+        // not supported on this browser, fine to ignore
+      }
       track.onended = () => {
         setState((s) => ({
           ...s,
@@ -150,6 +161,8 @@ export function useRecorder() {
     const g = graphRef.current
     if (!g) return
     framesRef.current = 0
+    discontinuityRef.current = { missingFrames: 0, expectedFrames: 0 }
+    peakSessionRef.current = 0
     pcmSinkRef.current.attach({
       onPcm: (chunk) => {
         framesRef.current += chunk.frames
@@ -157,6 +170,7 @@ export function useRecorder() {
         onPcm(chunk)
       },
       onMeter: (peakL, peakR) => {
+        peakSessionRef.current = Math.max(peakSessionRef.current, peakL, peakR)
         setState((s) => ({
           ...s,
           peakL,
@@ -164,13 +178,18 @@ export function useRecorder() {
           clipped: s.clipped || peakL >= 0.999 || peakR >= 0.999,
         }))
       },
+      onDiscontinuity: (missingFrames, expectedFrames) => {
+        discontinuityRef.current = { missingFrames, expectedFrames }
+      },
     })
     pcmSinkRef.current.setOpen(true)
     g.node.port.postMessage({ on: true })
     setState((s) => ({ ...s, status: 'recording', frames: 0, clipped: false }))
   }, [])
 
-  const stop = useCallback(async (): Promise<{ frames: number } | undefined> => {
+  const stop = useCallback(async (): Promise<
+    { frames: number; missingFrames: number; peakSession: number } | undefined
+  > => {
     const g = graphRef.current
     if (!g) return undefined
     g.node.port.postMessage({ on: false })
@@ -180,11 +199,17 @@ export function useRecorder() {
     await new Promise((resolve) => setTimeout(resolve, STOP_DRAIN_MS))
     pcmSinkRef.current.setOpen(false)
     pcmSinkRef.current.detach()
-    // framesRef is updated synchronously inside the onPcm wrapper as chunks
-    // arrive, so by the time the drain wait above resolves it already
-    // reflects the final flushed chunk — safe to read without racing the
-    // (batched, async) `frames` state.
-    return { frames: framesRef.current }
+    // framesRef/discontinuityRef/peakSessionRef are updated synchronously
+    // inside the sink callbacks as messages arrive, so by the time the
+    // drain wait above resolves they already reflect the final flush and
+    // the worklet's own discontinuity report (both part of the same
+    // on:false handling in the worklet) — safe to read without racing the
+    // batched, async state.
+    return {
+      frames: framesRef.current,
+      missingFrames: discontinuityRef.current.missingFrames,
+      peakSession: peakSessionRef.current,
+    }
   }, [])
 
   return { ...state, openDevice, close, start, stop }

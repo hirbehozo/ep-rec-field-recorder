@@ -1,14 +1,15 @@
-import { interleave } from '../wav'
 import type { WorkletMessage } from './types'
 
 export interface PcmChunk {
-  bytes: Uint8Array<ArrayBuffer>
+  l: Float32Array
+  r: Float32Array
   frames: number
 }
 
 export interface PcmSinkCallbacks {
   onPcm: (chunk: PcmChunk) => void
   onMeter?: (peakL: number, peakR: number) => void
+  onDiscontinuity?: (missingFrames: number, expectedFrames: number) => void
 }
 
 /**
@@ -16,7 +17,10 @@ export interface PcmSinkCallbacks {
  * open, not by whatever "recording" flag the UI shows. The worklet's final
  * partial buffer flushes asynchronously on stop and can arrive after the UI
  * has already flipped back to idle; dropping it loses the last fraction of
- * a second of every take.
+ * a second of every take. PCM conversion itself does not happen here — raw
+ * L/R buffers pass straight through, since where they go from here (a
+ * dedicated writer worker, or an in-memory fallback) decides whether
+ * conversion should happen off the main thread at all.
  */
 export class PcmSink {
   private open = false
@@ -43,9 +47,12 @@ export class PcmSink {
       this.callbacks?.onMeter?.(data.pl, data.pr)
       return
     }
+    if (data.type === 'discontinuity') {
+      this.callbacks?.onDiscontinuity?.(data.missingFrames, data.expectedFrames)
+      return
+    }
     if (data.type === 'pcm' && this.open && this.callbacks) {
-      const pcm = interleave(data.l, data.r, data.frames)
-      this.callbacks.onPcm({ bytes: new Uint8Array(pcm.buffer), frames: data.frames })
+      this.callbacks.onPcm({ l: data.l, r: data.r, frames: data.frames })
     }
   }
 }

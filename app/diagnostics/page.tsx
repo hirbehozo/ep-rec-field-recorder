@@ -30,14 +30,21 @@ interface TrackDiagnostics {
 // Confirmed on real hardware: explicitly disabling echoCancellation breaks
 // Android's device routing entirely — getUserMedia reports the requested
 // USB device as open with matching settings while silently capturing the
-// phone's built-in mic instead. noiseSuppression/autoGainControl can both
-// be disabled safely; echoCancellation cannot. This matches what
-// lib/audio/useRecorder.ts now requests. The other presets stay here for
-// troubleshooting different hardware, where the answer may differ.
-const PRESETS: Record<string, { label: string; constraints: MediaTrackConstraints }> = {
+// phone's built-in mic instead. noiseSuppression/autoGainControl/
+// voiceIsolation can all be disabled safely; echoCancellation cannot. This
+// matches what lib/audio/useRecorder.ts now requests. The other presets
+// stay here for troubleshooting different hardware, where the answer may
+// differ. voiceIsolation is Chrome-specific and not yet in TS's DOM lib.
+type ExperimentalConstraints = MediaTrackConstraints & { voiceIsolation?: boolean }
+const PRESETS: Record<string, { label: string; constraints: ExperimentalConstraints }> = {
   recommended: {
-    label: 'recommended (AEC default, NS/AGC off, stereo ideal)',
-    constraints: { noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 2 } },
+    label: 'recommended (AEC default, NS/AGC/VI off, stereo ideal)',
+    constraints: {
+      noiseSuppression: false,
+      autoGainControl: false,
+      voiceIsolation: false,
+      channelCount: { ideal: 2 },
+    },
   },
   processed: {
     label: 'fully processed (AEC/NS/AGC all default, stereo ideal)',
@@ -230,7 +237,7 @@ export default function DiagnosticsPage() {
     async (deviceId: string, presetKey: string) => {
       closeAudioGraph()
       clipRef.current = { l: false, r: false }
-      const constraints: MediaTrackConstraints = { ...PRESETS[presetKey].constraints }
+      const constraints: ExperimentalConstraints = { ...PRESETS[presetKey].constraints }
       if (deviceId) constraints.deviceId = { exact: deviceId }
       let stream: MediaStream
       try {
@@ -245,6 +252,11 @@ export default function DiagnosticsPage() {
       }
       const track = stream.getAudioTracks()[0]
       const settings = track.getSettings()
+      try {
+        track.contentHint = 'music'
+      } catch {
+        // not supported on this browser, fine to ignore
+      }
       track.onended = () => {
         log('The audio input disappeared. Check the USB cable, then press Connect again.')
         closeAudioGraph()

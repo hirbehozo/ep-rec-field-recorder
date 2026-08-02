@@ -21,6 +21,8 @@ function makeMeta(overrides: Partial<SessionMeta> = {}): SessionMeta {
     wav: 'T1.wav',
     midi: 'T1.midi.json',
     mem: true,
+    writeErrors: 0,
+    missingFrames: 0,
     ...overrides,
   }
 }

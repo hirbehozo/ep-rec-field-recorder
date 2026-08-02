@@ -30,10 +30,14 @@ const hms = (s: number) =>
   `${pad(Math.floor(s / 3600), 2)}:${pad(Math.floor(s / 60) % 60, 2)}:${pad(Math.floor(s) % 60, 2)}`
 const dbOf = (p: number) => (p > 0 ? 20 * Math.log10(p) : -100)
 const scaleOf = (db: number) => Math.max(0, Math.min(1, (db + 60) / 60))
+// Four characters maximum, which is what fits beside the meter.
+const dbLabel = (db: number) =>
+  db <= -60 ? '-INF' : db <= -9.95 ? String(Math.round(db)) : db.toFixed(1)
 
 const LAMP_TEST_MS = 240
 const WIPE_END_MS = 460
 const PAINT_INTERVAL_MS = 32 // ~30fps
+const BAR_END = 70
 
 function paint(
   dm: DotMatrix,
@@ -71,19 +75,20 @@ function paint(
   // full hh:mm:ss at double scale spans the display edge to edge
   dm.text(hms(secs), 1, 8, 2, 1)
 
-  // meters, with a slow-falling peak hold tick
+  // meters, with a slow-falling peak hold tick and a right-aligned dBFS
+  // readout in the columns the bar no longer occupies — this is what makes
+  // gain staging possible, so it has to actually fit next to the meter.
   meter.holdL = Math.max(meter.holdL * 0.985, meter.currentL)
   meter.holdR = Math.max(meter.holdR * 0.985, meter.currentR)
-  dm.char('L', 0, 23, 1, 1)
-  dm.bar(8, DM_COLS - 1, 25, 3, scaleOf(dbOf(meter.currentL)), 0.86)
-  dm.char('R', 0, 31, 1, 1)
-  dm.bar(8, DM_COLS - 1, 33, 3, scaleOf(dbOf(meter.currentR)), 0.86)
-  for (const [hold, y] of [
-    [meter.holdL, 25],
-    [meter.holdR, 33],
+  for (const [ch, peak, hold, y] of [
+    ['L', meter.currentL, meter.holdL, 23],
+    ['R', meter.currentR, meter.holdR, 31],
   ] as const) {
-    const x = 8 + Math.round(scaleOf(dbOf(hold)) * (DM_COLS - 9))
-    for (let r = 0; r < 3; r++) dm.plot(Math.min(DM_COLS - 1, x), y + r, 2)
+    dm.char(ch, 0, y, 1, 1)
+    dm.bar(8, BAR_END, y + 2, 3, scaleOf(dbOf(peak)), 0.86)
+    const x = 8 + Math.round(scaleOf(dbOf(hold)) * (BAR_END - 8))
+    for (let r = 0; r < 3; r++) dm.plot(Math.min(BAR_END, x), y + 2 + r, 2)
+    dm.right(dbLabel(dbOf(hold)), DM_COLS, y, 1, 1)
   }
 
   // Three honest states, never a fallback tempo presented as measured: a

@@ -54,29 +54,16 @@ export async function putFile(name: string, blob: Blob): Promise<void> {
   memFiles.set(name, blob)
 }
 
-export interface FileWriter {
-  write(data: BufferSource | Blob): Promise<void>
-  writeAt(position: number, data: BufferSource | Blob): Promise<void>
-  close(): Promise<void>
-}
-
 /**
- * Progressive OPFS writer for a take in progress: a placeholder header goes
- * in at position 0, PCM appends sequentially after it, then the real header
- * overwrites position 0 once the final byte count is known. Returns null
- * when OPFS is unavailable so the caller can fall back to accumulating
- * chunks in memory and building the file in one shot via putFile.
+ * Raw file handle for a take in progress, for the caller to hand off to the
+ * writer worker (createSyncAccessHandle is worker-only). Returns null when
+ * OPFS is unavailable so the caller can fall back to accumulating chunks in
+ * memory and building the file in one shot via putFile.
  */
-export async function openWritable(name: string): Promise<FileWriter | null> {
+export async function getWritableHandle(name: string): Promise<FileSystemFileHandle | null> {
   const dir = await getDir()
   if (!dir) return null
-  const fh = await dir.getFileHandle(name, { create: true })
-  const w = await fh.createWritable()
-  return {
-    write: (data) => w.write(data),
-    writeAt: (position, data) => w.write({ type: 'write', position, data }),
-    close: () => w.close(),
-  }
+  return dir.getFileHandle(name, { create: true })
 }
 
 export async function getBlob(name: string): Promise<Blob> {

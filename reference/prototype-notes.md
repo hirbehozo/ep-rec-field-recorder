@@ -115,8 +115,14 @@ modules under lib/. No React, no DOM APIs beyond Blob and File, no side effects.
 
 lib/wav.ts
   wavHeader(dataBytes, sampleRate, channels): Uint8Array
-  interleave(left, right, frames): Int16Array with clamping
-  Both lifted from the prototype, which is verified correct.
+  interleave(left, right, frames): Uint8Array of packed little-endian 24-bit samples
+  24 bit, not 16, because the Sidekick converts at 24 and anything narrower is loss we
+  inflict on ourselves. Quantise with Math.round, never a truncating cast: truncation
+  produces signal-correlated error rather than noise, and it costs nothing to avoid.
+  Measured on a sine sweep, rounded 24 bit sits at -144 dBFS of error against -87 dBFS
+  for the truncating 16 bit version the first prototype used, which puts our conversion
+  well under the Sidekick's own 105 dBA noise floor instead of on top of it.
+  Both functions are lifted from the prototype, which is verified correct.
 
 lib/smf.ts
   buildSMF(events: MidiEvent[], bpm: number, offsetMs: number): Blob
@@ -151,10 +157,11 @@ Write Jest tests for all of it. Specifically assert:
 - a generated SMF parses back to the right tick positions: 250ms at 120 BPM is 240 ticks
 - hanging notes get closed
 - the MThd chunk is exactly 6 data bytes and the track count matches
-- WAV header field offsets and byte order
+- WAV header field offsets and byte order, including blockAlign and byteRate at 24 bit
+- a full-scale sine round-trips through interleave with error below -140 dBFS
+- values beyond +/-1 clamp to the 24 bit rails without wrapping to the opposite sign
 - dmText advance width matches dmWidth for a range of strings and scales, so right
   alignment never overflows the 96 column grid
-- interleave clamps beyond +/-1 without wrapping
 - bpmFromClocks returns null on insufficient or nonsense input
 Write a minimal SMF parser in the test file rather than pulling in a dependency.
 
@@ -190,6 +197,25 @@ Two things in the prototype exist because they are bugs I already hit, keep them
    final chunk is retained.
 
 Elapsed time comes from the sample count, never from a wall clock timer.
+
+Ask the platform not to treat this as a phone call. Beyond the three processing flags,
+set voiceIsolation false in the constraints and set track.contentHint to 'music' on the
+resolved track. Neither is guaranteed to be honoured, but where they are, they keep the
+input off the voice-communication path and its processing.
+
+QUALITY IS ALSO ABOUT NOT DROPPING SAMPLES
+
+Move PCM conversion and file writing into a dedicated Worker using OPFS
+createSyncAccessHandle, which is worker-only and substantially faster than
+createWritable from the main thread. The main thread then only handles UI, so a slow
+render can never stall a disk write. This is the single biggest robustness change
+available and it is worth doing properly rather than porting the prototype's main-thread
+writer.
+
+Never swallow a write error. Count failures and report them on the take: a silently
+dropped chunk is a gap in a recording someone thought they had. Same for underruns, have
+the worklet count render quanta and compare against frames delivered, and record any
+discontinuity in the take metadata rather than hiding it.
 
 Handle track.onended by stopping the take cleanly and surfacing a message, since yanking
 the USB cable mid-take is a realistic failure.
@@ -354,16 +380,23 @@ Row allocation:
    0-6    status: a filled dot marker then REC / RDY / OFF, right aligned sample rate and
           channel count, replaced by a blinking CLIP when the latch is set
    8-21   elapsed time, HH:MM:SS at double scale, x=1, which spans the full 96 columns
-  23-29   L label and level bar, bar rows 25-27
-  31-37   R label and level bar, bar rows 33-35
+  23-29   L label, level bar on rows 25-27 running to column 70, and a right aligned
+          peak hold value in dBFS in the remaining columns
+  31-37   R label and level bar, same arrangement
   39-45   BPM from MIDI clock with its three states from prompt 5, right aligned event
           count
   47-53   the last MIDI message, truncated to 16 characters
 
-Level bars run from column 8 to 95 with a permanent end-of-scale tick so the ceiling is
+Level bars run from column 8 to 70 with a permanent end-of-scale tick so the ceiling is
 always visible, the top 14% of the scale lit in signal, and a slow-falling peak hold dot in
 signal that decays at 0.985 per frame. Peaks decay at 0.72 per frame so the meter has
 ballistics rather than snapping.
+
+The numeric readout is what makes gain staging possible, so it has to fit: four characters
+maximum, -INF below -60, whole numbers below -10, one decimal above that. Target for the
+user is peaks around -6 dBFS, set on the Sidekick's gain knobs. After a take that never
+exceeded -30 dBFS, say so, because a quiet take is a wasted one and the user cannot tell
+from the bars alone.
 
 Paint at 30fps, not 60. It is dense enough that 60 costs battery for no visible gain.
 

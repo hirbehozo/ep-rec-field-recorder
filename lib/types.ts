@@ -20,6 +20,8 @@ export interface SessionMeta {
   wav: string
   midi: string
   mem: boolean
+  writeErrors: number
+  missingFrames: number
 }
 
 export interface SessionPayload {

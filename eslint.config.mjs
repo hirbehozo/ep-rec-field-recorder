@@ -22,6 +22,7 @@ const eslintConfig = [
       'coverage/**',
       'public/rec-worklet.js',
       'public/sw.js',
+      'public/writer-worker.js',
       'reference/**',
       'scripts/**',
     ],

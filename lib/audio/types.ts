@@ -11,4 +11,10 @@ export interface MeterMessage {
   pr: number
 }
 
-export type WorkletMessage = PcmMessage | MeterMessage
+export interface DiscontinuityMessage {
+  type: 'discontinuity'
+  missingFrames: number
+  expectedFrames: number
+}
+
+export type WorkletMessage = PcmMessage | MeterMessage | DiscontinuityMessage

@@ -59,24 +59,28 @@ describe('PcmSink', () => {
     expect(meters).toEqual([[0.4, 0.6]])
   })
 
-  it('interleaves L/R into ready-to-write bytes', () => {
+  it('passes raw L/R buffers through untouched, no conversion here', () => {
     const sink = new PcmSink()
-    let bytes: Uint8Array | null = null
-    sink.attach({
-      onPcm: (chunk) => {
-        bytes = chunk.bytes
-      },
-    })
+    let received: { l: Float32Array; r: Float32Array; frames: number } | null = null
+    sink.attach({ onPcm: (chunk) => (received = chunk) })
     sink.setOpen(true)
-    sink.handleMessage({
-      type: 'pcm',
-      l: new Float32Array([0.5]),
-      r: new Float32Array([-0.5]),
-      frames: 1,
+    const l = new Float32Array([0.5, -0.25])
+    const r = new Float32Array([-0.5, 0.25])
+    sink.handleMessage({ type: 'pcm', l, r, frames: 2 })
+    expect(received).not.toBeNull()
+    expect(received!.l).toBe(l)
+    expect(received!.r).toBe(r)
+    expect(received!.frames).toBe(2)
+  })
+
+  it('forwards discontinuity messages regardless of open state', () => {
+    const sink = new PcmSink()
+    const discontinuities: Array<[number, number]> = []
+    sink.attach({
+      onPcm: () => {},
+      onDiscontinuity: (missing, expected) => discontinuities.push([missing, expected]),
     })
-    expect(bytes).not.toBeNull()
-    const view = new DataView((bytes as unknown as Uint8Array).buffer)
-    expect(view.getInt16(0, true)).toBe(Math.trunc(0.5 * 0x7fff))
-    expect(view.getInt16(2, true)).toBe(Math.trunc(-0.5 * 0x8000))
+    sink.handleMessage({ type: 'discontinuity', missingFrames: 12, expectedFrames: 48000 })
+    expect(discontinuities).toEqual([[12, 48000]])
   })
 })

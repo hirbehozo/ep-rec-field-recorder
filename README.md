@@ -69,8 +69,10 @@ exactly where the chain breaks.
    watch whether the meters move. This doesn't change between sessions on the same phone —
    run it once and remember the answer.
 
-Set levels with the Sidekick's own gain knobs until the meters sit comfortably below the
-top of the scale. The CLIP flag latches for the whole take once triggered.
+Set levels with the Sidekick's own gain knobs until the numbers beside the meters read
+around &minus;6 dBFS. The CLIP flag latches for the whole take once triggered, and a take
+that never passed &minus;30 dBFS gets flagged when you stop &mdash; a quiet take is a wasted
+one and the bars alone don't make that obvious.
 
 ## Reading the display
 
@@ -108,7 +110,11 @@ anything.
 
 ## Exports
 
-- **wav** &mdash; stereo 16-bit PCM at the interface's native sample rate
+- **wav** &mdash; stereo 24-bit PCM at the interface's native sample rate, matching the
+  Sidekick's own converters. Roughly 17 MB per minute. Quantized with rounding, not a
+  truncating cast, since truncation produces signal-correlated error rather than noise;
+  measured on a sine sweep this keeps conversion error around &minus;144 dBFS, well under
+  the interface's own noise floor.
 - **midi** &mdash; standard MIDI file, format 1, one track per port, hanging notes closed
 - **json** &mdash; every byte of every message with millisecond offsets, plus clock
   timestamps. This is the archival copy, and the one that carries the Sidekick's mixer
@@ -116,6 +122,16 @@ anything.
   performance data is the feature no other recorder on this rig gives you.
 - **all** &mdash; zips the three files together (a from-scratch, stored-only zip writer;
   audio doesn't compress usefully so there's no point adding a dependency for it)
+
+## Reliability
+
+PCM conversion and the actual disk write both happen off the main thread, in a dedicated
+worker using OPFS's synchronous file access handle, so a slow render can never stall a
+write mid-take. Write failures are never swallowed: a failed chunk is counted rather than
+silently producing a gap, and the take is flagged with how many write errors it had. The
+capture worklet separately compares frames actually captured against what the audio clock
+says should have arrived, so a dropped render quantum shows up as a recorded fact (a "gap"
+flag on the take) instead of a silently shortened recording.
 
 ## Known limits
 
@@ -126,18 +142,22 @@ anything.
   the phone sleep mid-take will interrupt capture; a screen Wake Lock is held during a take
   specifically to make phone-sleep the less likely of those two failure modes, but the tab
   itself still has to stay in front.
-- **16-bit.** WAV output is always 16-bit PCM regardless of the source interface's native
-  bit depth.
 - **No SysEx.** Web MIDI access is requested without the sysex flag, and no dump format is
   documented for either device anyway.
-- **Echo cancellation stays on.** Confirmed on real hardware: explicitly disabling
-  `echoCancellation` breaks Android's audio device routing outright &mdash; `getUserMedia`
-  reports the requested USB device as open with matching settings while silently capturing
-  the phone's built-in mic instead. `noiseSuppression` and `autoGainControl` can both be
-  disabled safely; only echo cancellation causes this. It is left at the browser's default
-  rather than forced off. For a direct line-in signal there is no acoustic echo to cancel in
-  the first place, so in practice this costs nothing. See `/diagnostics` for the constraint
-  presets used to isolate this, in case it needs re-diagnosing on different hardware.
+- **The remaining quality ceiling is Android's, not this app's.** A browser cannot fully
+  select the OS audio source; you get whatever processing the platform applies. Disabling
+  noise suppression, auto gain control and voice isolation, and marking the track as music
+  via `contentHint`, is the whole of the available influence &mdash; none of it is
+  guaranteed to be honored, but none of it costs anything to ask for either.
+- **Echo cancellation stays on, deliberately.** Confirmed on real hardware: explicitly
+  disabling `echoCancellation` breaks Android's audio device routing outright &mdash;
+  `getUserMedia` reports the requested USB device as open with matching settings while
+  silently capturing the phone's built-in mic instead. `noiseSuppression`, `autoGainControl`
+  and `voiceIsolation` can all be disabled safely; only echo cancellation causes this. It is
+  left at the browser's default rather than forced off. For a direct line-in signal there is
+  no acoustic echo to cancel in the first place, so in practice this costs nothing. See
+  `/diagnostics` for the constraint presets used to isolate this, in case it needs
+  re-diagnosing on different hardware.
 - **No MIDI clock from the Sidekick, and no state readback.** It detects BPM per channel
   internally and displays it on its own screen, but nothing suggests it transmits that over
   MIDI. MIDI from the Sidekick is a one-way controller stream — this app cannot ask which EQ

@@ -344,6 +344,21 @@ export default function Home() {
                       / <b>clipped</b>
                     </>
                   ) : null}
+                  {m.writeErrors > 0 ? (
+                    <>
+                      {' '}
+                      /{' '}
+                      <b>
+                        {m.writeErrors} write error{m.writeErrors === 1 ? '' : 's'}
+                      </b>
+                    </>
+                  ) : null}
+                  {m.missingFrames > 0 ? (
+                    <>
+                      {' '}
+                      / <b>gap</b>
+                    </>
+                  ) : null}
                 </div>
                 <div className="acts">
                   <button type="button" className="key mini" onClick={() => onExport(m, 'wav')}>

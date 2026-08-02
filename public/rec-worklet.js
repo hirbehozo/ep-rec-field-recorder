@@ -10,10 +10,20 @@ class Rec extends AudioWorkletProcessor {
     this.blocks = 0
     this.pl = 0
     this.pr = 0
+    this.framesWhileOn = 0
+    this.recordStartTime = 0
     this.port.onmessage = (e) => {
       if (e.data.on !== undefined) {
+        const turningOn = e.data.on && !this.on
         this.on = e.data.on
-        if (!this.on) this.flush()
+        if (turningOn) {
+          this.recordStartTime = currentTime
+          this.framesWhileOn = 0
+        }
+        if (!this.on) {
+          this.flush()
+          this.reportDiscontinuity()
+        }
         this.n = 0
       }
     }
@@ -25,6 +35,16 @@ class Rec extends AudioWorkletProcessor {
     const r = this.r.slice(0, this.n)
     this.port.postMessage({ type: 'pcm', l, r, frames: this.n }, [l.buffer, r.buffer])
     this.n = 0
+  }
+
+  // Compares frames actually captured against what the audio clock says
+  // should have arrived, so a dropped render quantum shows up as a
+  // recorded fact rather than a silently shortened take.
+  reportDiscontinuity() {
+    const elapsed = currentTime - this.recordStartTime
+    const expectedFrames = Math.round(elapsed * sampleRate)
+    const missingFrames = Math.max(0, expectedFrames - this.framesWhileOn)
+    this.port.postMessage({ type: 'discontinuity', missingFrames, expectedFrames })
   }
 
   process(inputs) {
@@ -46,6 +66,7 @@ class Rec extends AudioWorkletProcessor {
         this.n++
         if (this.n === CHUNK) this.flush()
       }
+      this.framesWhileOn += L.length
     }
     this.blocks++
     if (this.blocks % 8 === 0) {
