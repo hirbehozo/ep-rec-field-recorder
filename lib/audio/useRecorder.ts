@@ -162,25 +162,58 @@ export function useRecorder() {
       // loop between a speaker and a mic, echo cancellation has ~nothing to
       // do anyway, so leaving it at default costs effectively nothing.
       // voiceIsolation is Chrome-specific and not yet in TS's DOM lib.
-      const constraints: MediaTrackConstraints & { voiceIsolation?: boolean } = {
+      const baseConstraints: MediaTrackConstraints & { voiceIsolation?: boolean } = {
         noiseSuppression: false,
         autoGainControl: false,
         voiceIsolation: false,
         channelCount: { ideal: 2 },
       }
-      if (deviceId) constraints.deviceId = { exact: deviceId }
+      if (deviceId) baseConstraints.deviceId = { exact: deviceId }
 
       let stream: MediaStream
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
+        stream = await navigator.mediaDevices.getUserMedia({ audio: baseConstraints })
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
         setState((s) => ({ ...s, status: 'error', error: message }))
         throw e
       }
 
-      const track = stream.getAudioTracks()[0]
-      const settings = track.getSettings()
+      let track = stream.getAudioTracks()[0]
+      let settings = track.getSettings()
+      // The initial open above doesn't ask for a rate, so the platform
+      // picks its own default (often 48kHz) even when the interface's
+      // converters run higher. getCapabilities() reports what the device
+      // can actually do; if that ceiling is above what we got, reopen once
+      // asking for it — an "ideal" constraint, not "exact", since a device
+      // that can't hit it precisely should still open rather than fail.
+      const maxRate = track.getCapabilities?.().sampleRate?.max
+      if (maxRate && maxRate > (settings.sampleRate ?? 0)) {
+        // Pin to the exact device the first open resolved to (relevant when
+        // the caller didn't pass a deviceId at all), so the reopen can't
+        // land on a different physical device than the one just measured.
+        const resolvedDeviceId = settings.deviceId
+        stream.getTracks().forEach((t) => t.stop())
+        const highRateConstraints: MediaTrackConstraints = {
+          ...baseConstraints,
+          sampleRate: { ideal: maxRate },
+        }
+        if (resolvedDeviceId) highRateConstraints.deviceId = { exact: resolvedDeviceId }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: highRateConstraints })
+          track = stream.getAudioTracks()[0]
+          settings = track.getSettings()
+        } catch {
+          // Fall back to the original constraints rather than leaving the
+          // device unopened over a rate that turned out unreachable.
+          const fallbackConstraints: MediaTrackConstraints = { ...baseConstraints }
+          if (resolvedDeviceId) fallbackConstraints.deviceId = { exact: resolvedDeviceId }
+          stream = await navigator.mediaDevices.getUserMedia({ audio: fallbackConstraints })
+          track = stream.getAudioTracks()[0]
+          settings = track.getSettings()
+        }
+      }
+
       // Tells the platform this is music, not a voice call, where honored.
       // Not guaranteed, but costs nothing to ask.
       try {

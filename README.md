@@ -134,8 +134,11 @@ anything.
 
 ## Exports
 
-- **wav** &mdash; stereo 24-bit PCM at the interface's native sample rate, matching the
-  Sidekick's own converters. Roughly 17 MB per minute. Quantized with rounding, not a
+- **wav** &mdash; stereo 24-bit PCM at the interface's native sample rate. The device is
+  opened at whatever rate the platform defaults to (often 48kHz), then reopened once at the
+  device's own reported maximum (`MediaStreamTrack.getCapabilities().sampleRate.max`) if
+  that ceiling is higher, so a converter capable of 96kHz or 192kHz isn't quietly capped by
+  the OS default. Roughly 17 MB per minute at 48kHz. Quantized with rounding, not a
   truncating cast, since truncation produces signal-correlated error rather than noise;
   measured on a sine sweep this keeps conversion error around &minus;144 dBFS, well under
   the interface's own noise floor.
